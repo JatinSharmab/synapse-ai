@@ -1,0 +1,93 @@
+# Architecture Decisions
+
+This is a lightweight architecture decision record (ADR) log. New architecture-changing choices must be recorded here with context, alternatives, consequences, and status. Accepted decisions remain in the log even if later superseded.
+
+## Decision Index
+
+| ID | Decision | Status | Date |
+|---|---|---|---|
+| ADR-001 | AI-first monorepo with strict service boundaries | Accepted | 2026-06-12 |
+| ADR-002 | Bounded LangGraph orchestration with one Sentinel rewrite | Accepted | 2026-06-12 |
+| ADR-003 | Hybrid retrieval with provenance-first evidence | Accepted | 2026-06-12 |
+| ADR-004 | Constrained deterministic analytics instead of code execution | Accepted | 2026-06-12 |
+| ADR-005 | Schema-constrained Gen-UI | Accepted | 2026-06-12 |
+| ADR-006 | Free-tier portfolio topology with reconstructable Chroma | Accepted | 2026-06-12 |
+| ADR-007 | Replaceable providers and mandatory mock AI mode | Accepted | 2026-06-12 |
+| ADR-008 | Direct-to-object-storage production uploads | Accepted | 2026-06-12 |
+| ADR-009 | Safe operational traces without chain-of-thought | Accepted | 2026-06-12 |
+
+## ADR-001 — AI-First Monorepo with Strict Service Boundaries
+
+**Status:** Accepted  
+**Context:** The portfolio must demonstrate applied AI engineering without becoming a generic full-stack CRUD project.  
+**Decision:** Use a monorepo with planned `frontend/`, `gateway/`, `ai-service/`, `shared/`, `scripts/`, `sample-data/`, and `docs/` areas. Put prompts, orchestration, retrieval, analytics, providers, evaluation, and guardrails exclusively in the Python AI service. Keep the Node gateway transport-only and the frontend presentation-only.  
+**Consequences:** AI behavior has a clear owner and can be tested independently. Some contracts must be represented in both Pydantic and Zod and checked for drift.
+
+## ADR-002 — Bounded LangGraph Orchestration with One Sentinel Rewrite
+
+**Status:** Accepted  
+**Context:** Agent workflows need correction paths without runaway loops.  
+**Decision:** Route through Document Search, Video Search, Data Analytics, or Direct Answer, then Synthesizer and Sentinel. Allow at most one Sentinel-directed rewrite. A subsequent failure terminates as blocked or conservative insufficient evidence.  
+**Consequences:** Latency and provider usage are bounded. The graph must carry and test an explicit `rewrite_count` invariant.
+
+## ADR-003 — Hybrid Retrieval with Provenance-First Evidence
+
+**Status:** Accepted  
+**Context:** Dense retrieval can miss exact terms, lexical retrieval can miss semantic matches, and generated citation locations are unsafe.  
+**Decision:** Combine Chroma dense results and BM25 lexical results with Reciprocal Rank Fusion, then apply lightweight reranking and context selection. Require trusted page or timestamp provenance on every eligible evidence item.  
+**Consequences:** Retrieval has more moving parts and needs separate evaluation, but improves robustness and makes citation validation deterministic.
+
+## ADR-004 — Constrained Deterministic Analytics Instead of Code Execution
+
+**Status:** Accepted  
+**Context:** Executing model-generated Python creates unacceptable security and correctness risk; LLM arithmetic is unreliable.  
+**Decision:** Expose a typed allowlist of describe, count, sum, mean, min, max, group-by, sort, top-N, and aggregation operations. Execute them through controlled library calls and use their results as the sole source for numerical claims.  
+**Consequences:** The analytics surface is intentionally narrower but safe, reproducible, and testable.
+
+## ADR-005 — Schema-Constrained Gen-UI
+
+**Status:** Accepted  
+**Context:** Arbitrary generated React/HTML creates injection, reliability, and maintainability problems.  
+**Decision:** The model may emit only a versioned discriminated union of approved component data. Validate with Pydantic and Zod and render through a fixed frontend registry.  
+**Consequences:** UI generation is predictable and safe. New visual forms require an explicit schema and registry change.
+
+## ADR-006 — Free-Tier Portfolio Topology with Reconstructable Chroma
+
+**Status:** Accepted  
+**Context:** The demo must run for $0, while Render-local storage is ephemeral.  
+**Decision:** Plan for Vercel Hobby, Render Free, MongoDB Atlas Free, Supabase Storage Free, Mistral free mode, and local ChromaDB. Persist enough versioned chunks and embeddings in durable storage to rebuild Chroma without repeating embedding calls.  
+**Consequences:** Startup may require index warm-up, and MongoDB capacity constrains demo scale. This is not represented as an enterprise production deployment.
+
+## ADR-007 — Replaceable Providers and Mandatory Mock AI Mode
+
+**Status:** Accepted  
+**Context:** Free-model quota and network access cannot be assumed in demos or automated tests.  
+**Decision:** Isolate AI calls behind provider interfaces and support `AI_PROVIDER=mistral|mock`. The mock must be deterministic and network-free. Use comparable repository/provider abstractions for metadata, object storage, and vectors.  
+**Consequences:** Provider behavior can be tested and replaced, at the cost of additional interface and contract-test work.
+
+## ADR-008 — Direct-to-Object-Storage Production Uploads
+
+**Status:** Accepted  
+**Context:** Vercel serverless functions are a poor path for large PDFs and videos.  
+**Decision:** Upload production binaries from the browser using short-lived signed Supabase upload authorization, then send only object references and control metadata through the gateway to the AI service. Allow bounded direct FastAPI upload only for local development.  
+**Consequences:** Upload authorization and ownership validation become first-class security concerns, while the gateway remains small and deployment-safe.
+
+## ADR-009 — Safe Operational Traces Without Chain-of-Thought
+
+**Status:** Accepted  
+**Context:** The UI needs agent activity and observability, but hidden reasoning may contain sensitive data and must not be exposed.  
+**Decision:** Stream structured events for route selection, tool lifecycle, evidence IDs, validations, timings, provider usage, rewrite count, and status. Do not collect or return chain-of-thought, hidden prompts, or raw provider traces.  
+**Consequences:** Debugging depends on strong structured telemetry rather than reasoning transcripts, which improves safety and forces explicit instrumentation.
+
+## ADR Template
+
+```text
+## ADR-NNN — Title
+
+Status: Proposed | Accepted | Superseded by ADR-NNN | Rejected
+Date: YYYY-MM-DD
+Context: What problem or constraint requires a decision?
+Decision: What was chosen?
+Alternatives: What credible options were considered?
+Consequences: What improves, what becomes harder, and what must be tested?
+```
