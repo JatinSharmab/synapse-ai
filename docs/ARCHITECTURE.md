@@ -2,7 +2,10 @@
 
 ## Status and Scope
 
-This document defines the target architecture. In Phase 0 it is a design contract, not a description of deployed software. No service, database, provider, endpoint, or cloud resource shown below is currently implemented by this repository.
+This document defines the target architecture. Phase 1 implements only the local monorepo foundation:
+a React development shell, a thin Express gateway with `GET /health`, and a FastAPI AI-service
+boundary with `GET /health`. The AI, retrieval, persistence, ingestion, streaming, and cloud resources
+shown below remain design contracts and are not implemented or deployed.
 
 ## Architectural Principles
 
@@ -66,19 +69,31 @@ flowchart LR
 
 ### Frontend
 
-The planned frontend provides the AI chat workspace, knowledge library, ingestion controls, streamed response rendering, citation and video-evidence views, agent activity, evaluation metrics, and health/readiness indicators. It validates Gen-UI payloads with Zod and renders only known component types through a fixed registry.
+The Phase 1 frontend is a professional React, TypeScript, Vite, and Tailwind development shell using
+shadcn-compatible aliases, CSS variables, utilities, and component placement. The planned frontend
+will later provide the AI chat workspace, knowledge library, ingestion controls, streamed response
+rendering, citation and video-evidence views, agent activity, evaluation metrics, and health/readiness
+indicators. It will validate Gen-UI payloads with Zod and render only known component types through a
+fixed registry.
 
 It must not own prompts, routing rules, embeddings, retrieval, provider calls, grounding decisions, or analytics calculations.
 
 ### Gateway
 
-The planned gateway provides request validation, correlation IDs, lightweight rate limiting, Helmet security headers, CORS, request/SSE proxying, and normalized transport errors. It should be independently deployable as a Vercel project.
+The Phase 1 gateway implements typed environment validation, Helmet security headers, CORS, request
+logging, and process liveness at `GET /health`. Later gateway phases may add request validation,
+correlation IDs, lightweight rate limiting, request/SSE proxying, and normalized transport errors. It
+should remain independently deployable as a Vercel project.
 
 It must not import or reproduce LangGraph, prompts, embeddings, vector search, retrieval, Mistral behavior, AI agents, or business-intelligence rules.
 
 ### AI Service
 
-The planned AI service is the engineering core. It owns multimodal ingestion, hybrid retrieval, constrained analytics, LangGraph orchestration, provider selection, structured Gen-UI construction, citation grounding, Sentinel guardrails, evaluations, safe traces, and streaming event production.
+The Phase 1 AI service implements a FastAPI application factory, Pydantic v2 response model, typed
+Pydantic settings, OpenAPI, and process liveness at `GET /health`. It will become the engineering core
+in later approved phases and own multimodal ingestion, hybrid retrieval, constrained analytics,
+LangGraph orchestration, provider selection, structured Gen-UI construction, citation grounding,
+Sentinel guardrails, evaluations, safe traces, and streaming event production.
 
 ## Bounded LangGraph Flow
 
@@ -205,4 +220,3 @@ Safe traces may include correlation ID, run ID, selected route, tools started/co
 ## Deployment Topology
 
 The planned portfolio topology is frontend on Vercel Hobby, gateway in a separate Vercel project, AI service on Render Free Web Service, MongoDB Atlas Free for durable metadata, Supabase Storage Free for objects, ChromaDB inside the AI service, and Mistral free mode with mock fallback. It is a demonstration topology with cold starts, quotas, ephemeral compute storage, and limited scale—not a deployed enterprise platform. See `FREE_TIER_STRATEGY.md`.
-

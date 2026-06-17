@@ -15,6 +15,7 @@ This is a lightweight architecture decision record (ADR) log. New architecture-c
 | ADR-007 | Replaceable providers and mandatory mock AI mode | Accepted | 2026-06-12 |
 | ADR-008 | Direct-to-object-storage production uploads | Accepted | 2026-06-12 |
 | ADR-009 | Safe operational traces without chain-of-thought | Accepted | 2026-06-12 |
+| ADR-010 | Independent Phase 1 workspaces and application factories | Accepted | 2026-06-15 |
 
 ## ADR-001 — AI-First Monorepo with Strict Service Boundaries
 
@@ -78,6 +79,21 @@ This is a lightweight architecture decision record (ADR) log. New architecture-c
 **Context:** The UI needs agent activity and observability, but hidden reasoning may contain sensitive data and must not be exposed.  
 **Decision:** Stream structured events for route selection, tool lifecycle, evidence IDs, validations, timings, provider usage, rewrite count, and status. Do not collect or return chain-of-thought, hidden prompts, or raw provider traces.  
 **Consequences:** Debugging depends on strong structured telemetry rather than reasoning transcripts, which improves safety and forces explicit instrumentation.
+
+## ADR-010 — Independent Phase 1 Workspaces and Application Factories
+
+**Status:** Accepted  
+**Context:** Phase 1 needs a runnable monorepo foundation while preserving service isolation and making
+backend health behavior easy to test without network access or long-lived processes.  
+**Decision:** Manage the frontend and gateway as private npm workspaces with a shared strict TypeScript
+base configuration. Manage the AI service independently through `pyproject.toml` and a local virtual
+environment. Build the Express and FastAPI services through application factories that accept typed
+runtime configuration. Expose unversioned `GET /health` endpoints as process-liveness probes.  
+**Alternatives:** A single cross-language task runner, container-first development, and module-level
+configuration were considered unnecessary for the Phase 1 scope.  
+**Consequences:** Each service can run and test independently, backend tests remain deterministic, and
+the gateway stays free of AI dependencies. Developers run three local processes, and cross-service
+contract generation remains deferred until shared domain contracts exist.
 
 ## ADR Template
 

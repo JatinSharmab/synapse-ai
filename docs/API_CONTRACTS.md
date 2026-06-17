@@ -2,7 +2,9 @@
 
 ## Status and Conventions
 
-All contracts in this document are **planned, versioned design contracts**. No endpoints are implemented in Phase 0. Exact routes may evolve through recorded architecture decisions before implementation.
+Unless marked as implemented, contracts in this document are **planned, versioned design contracts**.
+Phase 1 implements only the unversioned process-liveness endpoint `GET /health` on the gateway and AI
+service. Exact future routes may evolve through recorded architecture decisions before implementation.
 
 - External base path: `/api/v1`
 - Content type: `application/json` unless noted
@@ -34,19 +36,23 @@ Public errors must not contain stack traces, prompts, secrets, provider payloads
 
 ## Health and Readiness
 
-### `GET /api/v1/health`
+### `GET /health` — Implemented in Phase 1
 
-Reports process liveness only.
+Reports process liveness only. Both backends return the same field shape with a service-specific name.
 
 ```json
 {
-  "status": "ok",
   "service": "ai-service",
-  "version": "0.0.0"
+  "status": "ok",
+  "version": "0.1.0",
+  "environment": "development"
 }
 ```
 
-### `GET /api/v1/readiness`
+Implemented service names are `synapse-gateway` and `synapse-ai-service`. The endpoint does not claim
+dependency or AI readiness.
+
+### `GET /api/v1/readiness` — Planned
 
 Reports whether required dependencies and local indexes are ready to serve relevant traffic.
 
@@ -319,4 +325,3 @@ Returns suite version, provider mode, configuration fingerprint, status, aggrega
 ## Versioning and Compatibility
 
 Public envelopes and Gen-UI payloads carry `schema_version`. Breaking contract changes require a new API or schema version and a decision-log entry. Provider SDK types, database documents, and LangGraph internal state are not public API contracts.
-

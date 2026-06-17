@@ -2,7 +2,8 @@
 
 ## Status
 
-This is the target AI design for future phases. Phase 0 implements none of the described pipelines.
+This is the target AI design for future phases. Through Phase 1, none of the described AI pipelines is
+implemented; Phase 1 provides only the typed FastAPI service boundary and health endpoint.
 
 ## Design Goals
 
@@ -242,4 +243,3 @@ AI_PROVIDER=mistral|mock
 ```
 
 Comparable abstractions isolate metadata, object storage, vector search, and embeddings. Provider-specific models and SDK types should not leak into graph state or public contracts.
-
