@@ -3,8 +3,9 @@
 ## Status and Conventions
 
 Unless marked as implemented, contracts in this document are **planned, versioned design contracts**.
-Phase 1 implements only the unversioned process-liveness endpoint `GET /health` on the gateway and AI
-service. Exact future routes may evolve through recorded architecture decisions before implementation.
+Phase 2 implements the unversioned process-liveness endpoint `GET /health` on both backends and
+`POST /api/v1/chat/invoke` on the AI service. Exact future routes may evolve through recorded
+architecture decisions before implementation.
 
 - External base path: `/api/v1`
 - Content type: `application/json` unless noted
@@ -118,6 +119,27 @@ Lists authorized source metadata and readiness. Binary content, embedding vector
 Returns trusted display metadata, modality, ingestion status, version/checksum metadata safe for display, and bounded processing summaries.
 
 ## Chat and Streaming
+
+### `POST /api/v1/chat/invoke` — Implemented in Phase 2
+
+Synchronously invokes the deterministic LangGraph workflow. `thread_id` is propagated for correlation
+only; Phase 2 has no checkpointer, memory, or database.
+
+```json
+{
+  "message": "Summarize page 4 of the PDF document",
+  "thread_id": "thread_opaque"
+}
+```
+
+The safe response includes `request_id`, `thread_id`, `intent`, `route`, `final_response`, empty
+Phase 2 citation/Gen-UI arrays, `guardrail_result`, public errors, safe trace events, and a bounded
+`rewrite_count`. It excludes `user_query`, `draft_response`, `retrieved_context`, `tool_results`,
+prompts, and private reasoning.
+
+`message` is trimmed and limited to 4,000 characters. `thread_id` is trimmed, limited to 128
+characters, and restricted to letters, digits, `.`, `_`, `:`, and `-`. Unknown request fields fail
+validation.
 
 ### `POST /api/v1/runs`
 

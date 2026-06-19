@@ -2,8 +2,9 @@
 
 Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstrate senior-level AI engineering. It will reason across PDF documents, video content, and CSV data while keeping answers grounded in traceable evidence.
 
-> **Project status:** Phase 1 — runnable monorepo foundation. The frontend development shell and
-> backend health endpoints are implemented locally; AI capabilities and cloud infrastructure are not.
+> **Project status:** Phase 2 — deterministic LangGraph orchestration core. The typed graph, safe
+> invoke endpoint, frontend shell, and backend health endpoints run locally; model providers,
+> retrieval, persistence, and cloud infrastructure are not connected.
 
 ## Intended Capabilities
 
@@ -21,12 +22,13 @@ Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstra
 
 ## Monorepo
 
-Phase 1 establishes the service boundaries without implementing future AI or persistence work.
+Phase 2 establishes the service boundaries and deterministic orchestration without implementing
+model-backed generation, retrieval, or persistence.
 
 ```text
 frontend/       React, TypeScript, Vite, Tailwind CSS development shell
 gateway/        Thin Express, TypeScript, Zod, CORS, Helmet gateway foundation
-ai-service/     FastAPI, Pydantic v2, typed configuration, health foundation
+ai-service/     FastAPI, Pydantic v2, LangGraph orchestration, typed API and health
 shared/         Reserved for implementation-neutral, versioned contracts
 scripts/        Reserved for transparent repository automation
 sample-data/    Reserved for curated, non-sensitive fixtures
@@ -39,7 +41,7 @@ docs/           Architecture, design, decisions, contracts, and build history
 - npm 10 or newer
 - Python 3.11 or newer
 
-The validated Phase 1 environment used Node.js 24 and Python 3.14. The declared compatibility floor
+The validated environment used Node.js 24 and Python 3.14. The declared compatibility floor
 remains Node.js 20.19 and Python 3.11.
 
 ## Installation
@@ -62,7 +64,7 @@ cd ..
 On macOS or Linux, replace the Python executable path with `.venv/bin/python`.
 
 Each service has an `.env.example` containing variable names only. All settings have safe local
-defaults in Phase 1, so copying these files is optional. If overrides are needed, copy the relevant
+defaults, so copying these files is optional. If overrides are needed, copy the relevant
 example to `.env` and set local values; `.env` files are ignored by Git.
 
 ## Local Development
@@ -96,6 +98,25 @@ Local URLs:
 - AI service OpenAPI: `http://localhost:8000/docs`
 
 Both health endpoints return `service`, `status`, `version`, and `environment`.
+
+Invoke the deterministic Phase 2 graph:
+
+```powershell
+$body = @{
+  message = "Summarize page 4 of the PDF document"
+  thread_id = "local-thread"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/api/v1/chat/invoke `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The response is a safe state summary containing route, final response, guardrail result, bounded
+rewrite count, and operational trace. It excludes the user query, draft response, tool internals, and
+private reasoning.
 
 ## Quality Commands
 
@@ -147,6 +168,7 @@ This is intentionally different from a production enterprise topology. See [Free
 
 ## Current Scope and Phase Boundary
 
-Phase 1 intentionally stops at a professional frontend shell, typed runtime configuration, security
-middleware, request logging, health endpoints, and backend smoke tests. MongoDB, authentication,
-LangGraph, Mistral, RAG, ChromaDB, Supabase, agents, and Gen-UI are not implemented.
+Phase 2 intentionally stops at deterministic routing, placeholder capability nodes, synthesis,
+Sentinel decisions, safe tracing, and a bounded LangGraph rewrite path. MongoDB, authentication,
+Mistral, real RAG, embeddings, ChromaDB, Supabase, persistent threads, and Gen-UI generation are not
+implemented.

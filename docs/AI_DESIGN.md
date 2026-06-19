@@ -2,8 +2,10 @@
 
 ## Status
 
-This is the target AI design for future phases. Through Phase 1, none of the described AI pipelines is
-implemented; Phase 1 provides only the typed FastAPI service boundary and health endpoint.
+This is the target AI design. Phase 2 implements the deterministic LangGraph orchestration core,
+typed state, placeholder capability nodes, bounded Sentinel rewrite, safe traces, and synchronous
+invoke API. Model providers, real retrieval, analytics execution, persistence, citations, and Gen-UI
+generation remain future work.
 
 ## Design Goals
 
@@ -78,11 +80,48 @@ public_error
 
 Raw chain-of-thought is neither a state field nor an event. Tool results and evidence use typed domain models rather than free-form agent messages wherever possible.
 
+### Phase 2 Executable Graph
+
+```mermaid
+flowchart TD
+    START([START]) --> Router[router]
+
+    Router -->|document_search| Document[document_search]
+    Router -->|video_search| Video[video_search]
+    Router -->|data_analytics| Analytics[data_analytics]
+    Router -->|direct_answer| Direct[direct_answer]
+
+    Document --> Synthesizer[synthesizer]
+    Video --> Synthesizer
+    Analytics --> Synthesizer
+    Direct --> Synthesizer
+
+    Synthesizer --> Sentinel[sentinel]
+    Sentinel -->|approve| END([END])
+    Sentinel -->|block| END
+    Sentinel -->|rewrite when rewrite_count = 0| RewriteGate[set rewrite_count = 1]
+    RewriteGate --> Synthesizer
+```
+
+Phase 2 compiles this topology with LangGraph `StateGraph`. The graph receives a fully initialized
+`SynapseState`; nodes return typed partial updates. The longest valid path is one route, first
+synthesis, Sentinel rewrite, second synthesis, and final Sentinel approval or block. The
+orchestration service also supplies a recursion limit of 12 as a secondary fail-safe.
+
+The implemented state contains `request_id`, `thread_id`, `user_query`, `intent`, `route`,
+`retrieved_context`, `tool_results`, `draft_response`, `final_response`, `citations`, `genui`,
+`guardrail_result`, `errors`, `trace`, and `rewrite_count`. Only a safe subset is serialized by the
+public API; user input, drafts, retrieved context, and tool internals are excluded.
+
 ## Router
 
 The Router selects one of `document_search`, `video_search`, `data_analytics`, or `direct_answer`, with an option for a deliberately bounded multi-tool plan if a later phase explicitly authorizes it. It receives source availability, the user query, and safe conversation context.
 
 Routing combines deterministic signals with structured model classification. Examples include explicit dataset operations, selected source types, and references to pages or timestamps. Its output is schema-validated and includes a route, confidence, brief safe rationale category, and typed tool parameters—not hidden reasoning.
+
+In Phase 2, routing is deliberately deterministic and uses case-insensitive, word-boundary keyword
+matching. Priority is analytics, then video, then documents, with direct answer as the fallback. This
+is test scaffolding for the graph contract, not semantic model routing.
 
 ## Document Search Tool
 

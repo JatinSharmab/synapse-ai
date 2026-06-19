@@ -84,3 +84,54 @@ This log records completed project phases. Entries describe work actually perfor
 - Gateway proxying, correlation IDs, rate limiting, SSE, and normalized error middleware
 - Final dashboard and product workflows
 - Deployment configuration and cloud provisioning
+
+## Phase 2 — Deterministic LangGraph Orchestration Core
+
+**Date:** 2026-06-19  
+**Status:** Complete
+
+### Delivered
+
+- Added LangGraph 1.2 with a strongly typed `SynapseState` and typed partial state updates.
+- Organized the AI service into `api`, `agents`, `graph`, `models`, `schemas`, `services`, `tools`,
+  and `core` layers.
+- Implemented deterministic Router, Document Search, Video Search, Data Analytics, Direct Answer,
+  Synthesizer, and Sentinel nodes.
+- Implemented conditional routing from Router and a bounded Sentinel rewrite edge.
+- Enforced a maximum `rewrite_count` of one and an invocation recursion limit of 12.
+- Added deterministic placeholder tools that explicitly report unavailable future capabilities and
+  never fabricate retrieved context, citations, timestamps, pages, or numerical results.
+- Added `POST /api/v1/chat/invoke` with strict request validation and a safe state summary that omits
+  user input, drafts, retrieved context, tool internals, prompts, and private reasoning.
+- Refactored Phase 1 configuration and health schemas into the clean AI-service package structure.
+- Added an executable LangGraph Mermaid diagram and updated architecture/API documentation.
+
+### Verification
+
+- Document, video, analytics, and direct queries route to their expected nodes.
+- Complete invocations terminate with an approved or blocked final state.
+- A short first draft triggers exactly one rewrite and then terminates.
+- A second invalid draft blocks rather than requesting another rewrite.
+- Unknown API request fields are rejected, and safe API summaries omit private/internal state.
+- `ruff check app tests` passed.
+- `ruff format --check app tests` passed for all 27 Python files.
+- Strict `mypy app tests` passed across 27 source files.
+- `pytest` passed all 11 AI-service tests.
+- Existing npm lint, TypeScript checks, gateway smoke test, and production builds still pass.
+- A live Uvicorn request routed a video query correctly and returned only the safe state summary.
+
+### Resolved During Verification
+
+- Replaced substring keyword routing with word-boundary matching after `summarize` incorrectly matched
+  the analytics keyword `sum` in the first test run.
+- Corrected one Ruff line-length violation and two strict mypy type errors found in the first check.
+- The sandbox denied Ruff's initial cache and formatting writes; final checks used no cache or a
+  writable temporary cache, and formatting was applied with explicit workspace permission.
+
+### Deferred by Design
+
+- Mistral and every other model provider
+- Real document/video retrieval, embeddings, RAG, and ChromaDB
+- Deterministic CSV execution beyond the placeholder graph node
+- MongoDB, Supabase, checkpointers, and persistent thread memory
+- Production citations, generated UI, semantic guardrails, evaluation, and streaming

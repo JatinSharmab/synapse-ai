@@ -16,6 +16,7 @@ This is a lightweight architecture decision record (ADR) log. New architecture-c
 | ADR-008 | Direct-to-object-storage production uploads | Accepted | 2026-06-12 |
 | ADR-009 | Safe operational traces without chain-of-thought | Accepted | 2026-06-12 |
 | ADR-010 | Independent Phase 1 workspaces and application factories | Accepted | 2026-06-15 |
+| ADR-011 | Deterministic Phase 2 graph with bounded rewrites | Accepted | 2026-06-19 |
 
 ## ADR-001 — AI-First Monorepo with Strict Service Boundaries
 
@@ -94,6 +95,21 @@ configuration were considered unnecessary for the Phase 1 scope.
 **Consequences:** Each service can run and test independently, backend tests remain deterministic, and
 the gateway stays free of AI dependencies. Developers run three local processes, and cross-service
 contract generation remains deferred until shared domain contracts exist.
+
+## ADR-011 — Deterministic Phase 2 Graph with Bounded Rewrites
+
+**Status:** Accepted  
+**Context:** The orchestration topology and safety invariants need executable proof before connecting
+model providers, retrieval, databases, or persistence.  
+**Decision:** Implement the Phase 2 workflow with LangGraph `StateGraph`, a fully initialized typed
+state, pure deterministic nodes, conditional router and Sentinel edges, no checkpointer, and no model
+calls. Sentinel may increment `rewrite_count` from zero to one exactly once; another invalid draft is
+blocked. The invocation service also uses a recursion limit of 12.  
+**Alternatives:** Hand-written control flow would be simpler but would not validate the intended
+LangGraph architecture. Adding a checkpointer or provider was rejected as future-phase scope.  
+**Consequences:** Routing and termination are deterministic, fast, and network-free after installation.
+`thread_id` is correlation data only, placeholder tools return explicit not-implemented results, and
+the implementation does not yet demonstrate retrieval or model quality.
 
 ## ADR Template
 

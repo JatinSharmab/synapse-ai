@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.config import Settings
+from app.core.config import Settings
 from app.main import create_app
 
 
@@ -27,8 +27,5 @@ def test_health_schema_is_exposed_in_openapi() -> None:
         schema = client.get("/openapi.json").json()
 
     health_operation = schema["paths"]["/health"]["get"]
-    response_schema = health_operation["responses"]["200"]["content"]["application/json"][
-        "schema"
-    ]
+    response_schema = health_operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert response_schema["$ref"].endswith("/HealthResponse")
-

@@ -1,2 +1,1 @@
 """Synapse AI service package."""
-

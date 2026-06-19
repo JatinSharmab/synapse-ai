@@ -2,10 +2,10 @@
 
 ## Status and Scope
 
-This document defines the target architecture. Phase 1 implements only the local monorepo foundation:
-a React development shell, a thin Express gateway with `GET /health`, and a FastAPI AI-service
-boundary with `GET /health`. The AI, retrieval, persistence, ingestion, streaming, and cloud resources
-shown below remain design contracts and are not implemented or deployed.
+This document defines the target architecture. Through Phase 2, the repository implements the local
+monorepo foundation plus a strongly typed, deterministic LangGraph orchestration core and
+`POST /api/v1/chat/invoke`. Model-backed generation, retrieval, persistence, ingestion, streaming,
+and cloud resources shown below remain design contracts and are not implemented or deployed.
 
 ## Architectural Principles
 
@@ -89,11 +89,12 @@ It must not import or reproduce LangGraph, prompts, embeddings, vector search, r
 
 ### AI Service
 
-The Phase 1 AI service implements a FastAPI application factory, Pydantic v2 response model, typed
-Pydantic settings, OpenAPI, and process liveness at `GET /health`. It will become the engineering core
-in later approved phases and own multimodal ingestion, hybrid retrieval, constrained analytics,
-LangGraph orchestration, provider selection, structured Gen-UI construction, citation grounding,
-Sentinel guardrails, evaluations, safe traces, and streaming event production.
+The Phase 2 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
+settings, OpenAPI, process liveness, and deterministic LangGraph orchestration. Router, placeholder
+capability nodes, Synthesizer, and Sentinel execute with a one-rewrite maximum and emit safe
+operational traces. Later approved phases will add multimodal ingestion, real hybrid retrieval,
+constrained analytics execution, provider selection, structured Gen-UI construction, citation
+grounding, expanded guardrails, evaluations, and streaming event production.
 
 ## Bounded LangGraph Flow
 
