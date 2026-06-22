@@ -13,6 +13,7 @@ from app.models.domain import (
     Route,
     ToolResult,
 )
+from app.schemas.inference import InferenceMetadata
 
 
 class SynapseState(TypedDict):
@@ -29,6 +30,7 @@ class SynapseState(TypedDict):
     genui: list[GenUIComponent]
     guardrail_result: GuardrailResult | None
     errors: Annotated[list[ErrorRecord], operator.add]
+    inference_metadata: Annotated[list[InferenceMetadata], operator.add]
     trace: Annotated[list[str], operator.add]
     rewrite_count: int
 
@@ -44,6 +46,7 @@ class SynapseStateUpdate(TypedDict, total=False):
     genui: list[GenUIComponent]
     guardrail_result: GuardrailResult | None
     errors: list[ErrorRecord]
+    inference_metadata: list[InferenceMetadata]
     trace: list[str]
     rewrite_count: int
 
@@ -63,6 +66,7 @@ def create_initial_state(*, request_id: str, thread_id: str, user_query: str) ->
         "genui": [],
         "guardrail_result": None,
         "errors": [],
+        "inference_metadata": [],
         "trace": [],
         "rewrite_count": 0,
     }

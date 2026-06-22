@@ -2,10 +2,10 @@
 
 ## Status and Scope
 
-This document defines the target architecture. Through Phase 2, the repository implements the local
-monorepo foundation plus a strongly typed, deterministic LangGraph orchestration core and
-`POST /api/v1/chat/invoke`. Model-backed generation, retrieval, persistence, ingestion, streaming,
-and cloud resources shown below remain design contracts and are not implemented or deployed.
+This document defines the target architecture. Through Phase 3, the repository implements the local
+monorepo foundation, strongly typed LangGraph orchestration, and replaceable Mock/Mistral inference
+for Router and Synthesizer. Retrieval, persistence, ingestion, streaming, and cloud resources shown
+below remain design contracts and are not implemented or deployed.
 
 ## Architectural Principles
 
@@ -89,12 +89,13 @@ It must not import or reproduce LangGraph, prompts, embeddings, vector search, r
 
 ### AI Service
 
-The Phase 2 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
-settings, OpenAPI, process liveness, and deterministic LangGraph orchestration. Router, placeholder
-capability nodes, Synthesizer, and Sentinel execute with a one-rewrite maximum and emit safe
-operational traces. Later approved phases will add multimodal ingestion, real hybrid retrieval,
-constrained analytics execution, provider selection, structured Gen-UI construction, citation
-grounding, expanded guardrails, evaluations, and streaming event production.
+The Phase 3 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
+settings, OpenAPI, process liveness, and LangGraph orchestration. Provider-backed Router and
+Synthesizer nodes run through a typed `LLMProvider`; capability nodes remain explicit placeholders
+and Sentinel remains deterministic with a one-rewrite maximum. Safe inference metadata includes
+model identifiers, latency, retries, and token usage where available. Later approved phases will add
+multimodal ingestion, real hybrid retrieval, constrained analytics execution, structured Gen-UI,
+citation grounding, expanded guardrails, evaluations, and streaming.
 
 ## Bounded LangGraph Flow
 
@@ -200,7 +201,8 @@ Local development may expose direct FastAPI upload endpoints. Production large b
 - `MetadataRepository` stores document/video/dataset metadata, ingestion state, provenance, durable chunk content, embedding vectors (or a lossless representation), embedding model/version, and index reconstruction metadata.
 - `ObjectStorageProvider` stores original and derived objects such as PDFs, videos, sampled frames, and approved transcript artifacts.
 - `VectorStore` provides semantic indexing and retrieval. In the portfolio topology it uses ChromaDB on ephemeral Render storage.
-- `LLMProvider` isolates Mistral and mock behavior. Embedding behavior should likewise be replaceable and versioned.
+- `LLMProvider` isolates Mistral and Mock text, structured, vision, and embedding operations. Phase 3
+  connects only routing and synthesis; provider-specific SDK types remain inside the adapter.
 
 On AI-service startup, a reconstruction process compares durable index metadata with local Chroma state and rebuilds missing collections from stored embeddings. It must not call the embedding API for already embedded, version-compatible chunks.
 

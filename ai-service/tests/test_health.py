@@ -5,7 +5,7 @@ from app.main import create_app
 
 
 def test_health_returns_typed_service_contract() -> None:
-    settings = Settings(app_env="test", app_version="0.1.0-test")
+    settings = Settings(app_env="test", app_version="0.3.0-test", ai_provider="mock")
 
     with TestClient(create_app(settings)) as client:
         response = client.get("/health")
@@ -15,13 +15,13 @@ def test_health_returns_typed_service_contract() -> None:
     assert response.json() == {
         "service": "synapse-ai-service",
         "status": "ok",
-        "version": "0.1.0-test",
+        "version": "0.3.0-test",
         "environment": "test",
     }
 
 
 def test_health_schema_is_exposed_in_openapi() -> None:
-    app = create_app(Settings(app_env="test"))
+    app = create_app(Settings(app_env="test", ai_provider="mock"))
 
     with TestClient(app) as client:
         schema = client.get("/openapi.json").json()

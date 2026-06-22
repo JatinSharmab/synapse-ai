@@ -1,38 +1,17 @@
-import re
-
 from app.models.domain import (
     ErrorRecord,
     GuardrailDecision,
     GuardrailResult,
-    Intent,
     Route,
     ToolResult,
 )
 from app.models.state import SynapseState, SynapseStateUpdate
+from app.prompts.router import ROUTER_SYSTEM_PROMPT, build_router_user_prompt
+from app.prompts.synthesis import SYNTHESIS_SYSTEM_PROMPT, build_synthesis_user_prompt
+from app.providers.base import LLMProvider
+from app.schemas.inference import RouterClassification
 from app.tools.placeholders import run_placeholder_tool
 
-ANALYTICS_TERMS = frozenset(
-    {
-        "aggregate",
-        "average",
-        "calculate",
-        "count",
-        "csv",
-        "data",
-        "dataset",
-        "group by",
-        "mean",
-        "revenue",
-        "sales",
-        "sum",
-        "table",
-        "top",
-    }
-)
-VIDEO_TERMS = frozenset({"clip", "frame", "scene", "timestamp", "transcript", "video", "watch"})
-DOCUMENT_TERMS = frozenset(
-    {"contract", "document", "file", "page", "pdf", "policy", "report", "section"}
-)
 BLOCKED_INPUT_PATTERNS = (
     "<script",
     "javascript:",
@@ -42,30 +21,22 @@ BLOCKED_INPUT_PATTERNS = (
 MINIMUM_DRAFT_LENGTH = 20
 
 
-def _contains_any(query: str, terms: frozenset[str]) -> bool:
-    return any(re.search(rf"\b{re.escape(term)}\b", query) is not None for term in terms)
-
-
-def router(state: SynapseState) -> SynapseStateUpdate:
-    query = state["user_query"].casefold()
-
-    if _contains_any(query, ANALYTICS_TERMS):
-        intent = Intent.ANALYTICS
-        route = Route.DATA_ANALYTICS
-    elif _contains_any(query, VIDEO_TERMS):
-        intent = Intent.VIDEO
-        route = Route.VIDEO_SEARCH
-    elif _contains_any(query, DOCUMENT_TERMS):
-        intent = Intent.DOCUMENT
-        route = Route.DOCUMENT_SEARCH
-    else:
-        intent = Intent.DIRECT
-        route = Route.DIRECT_ANSWER
+def router(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdate:
+    result = provider.generate_structured(
+        system_prompt=ROUTER_SYSTEM_PROMPT,
+        user_prompt=build_router_user_prompt(state["user_query"]),
+        response_model=RouterClassification,
+    )
+    classification = result.value
 
     return {
-        "intent": intent,
-        "route": route,
-        "trace": [f"router.selected={route.value}"],
+        "intent": classification.intent,
+        "route": classification.route,
+        "inference_metadata": [result.metadata],
+        "trace": [
+            f"router.selected={classification.route.value}",
+            f"provider.router={result.metadata.provider}",
+        ],
     }
 
 
@@ -112,32 +83,24 @@ def _selected_tool_result(state: SynapseState) -> ToolResult | None:
     )
 
 
-def synthesizer(state: SynapseState) -> SynapseStateUpdate:
+def synthesizer(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdate:
     route = state["route"]
-    result = _selected_tool_result(state)
-
-    if route is None or result is None:
-        draft = "Synapse could not produce a response because routing did not complete safely."
-    elif route == Route.DIRECT_ANSWER and state["user_query"].casefold() in {"hello", "hi", "hey"}:
-        if state["rewrite_count"] == 0:
-            draft = "Hello."
-        else:
-            draft = (
-                "Hello. Synapse completed the deterministic Phase 2 orchestration path; "
-                "model-backed answering is not enabled."
-            )
-    elif route == Route.DIRECT_ANSWER:
-        draft = (
-            "Synapse classified this as a direct question. Phase 2 validates orchestration only, "
-            "so model-backed answering is not enabled."
-        )
-    else:
-        draft = f"{route.value} was selected correctly. {result.summary}"
+    tool_result = _selected_tool_result(state)
+    result = provider.generate(
+        system_prompt=SYNTHESIS_SYSTEM_PROMPT,
+        user_prompt=build_synthesis_user_prompt(
+            user_query=state["user_query"],
+            route=route,
+            tool_result=tool_result,
+            rewrite_count=state["rewrite_count"],
+        ),
+    )
 
     synthesis_event = "synthesizer=rewrite" if state["rewrite_count"] > 0 else "synthesizer=draft"
     return {
-        "draft_response": draft,
-        "trace": [synthesis_event],
+        "draft_response": result.text,
+        "inference_metadata": [result.metadata],
+        "trace": [synthesis_event, f"provider.synthesizer={result.metadata.provider}"],
     }
 
 

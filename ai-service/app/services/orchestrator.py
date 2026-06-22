@@ -5,6 +5,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.graph.workflow import build_synapse_graph
 from app.models.state import SynapseState, create_initial_state
+from app.providers.base import LLMProvider
 from app.schemas.chat import ChatStateSummary
 
 GRAPH_RECURSION_LIMIT = 12
@@ -13,9 +14,10 @@ GRAPH_RECURSION_LIMIT = 12
 class SynapseOrchestrator:
     def __init__(
         self,
+        provider: LLMProvider,
         graph: CompiledStateGraph[SynapseState, None, SynapseState, SynapseState] | None = None,
     ) -> None:
-        self._graph = graph or build_synapse_graph()
+        self._graph = graph or build_synapse_graph(provider)
 
     def invoke(self, *, message: str, thread_id: str) -> ChatStateSummary:
         initial_state = create_initial_state(
@@ -45,6 +47,7 @@ class SynapseOrchestrator:
             genui=result["genui"],
             guardrail_result=guardrail_result,
             errors=result["errors"],
+            inference_metadata=result["inference_metadata"],
             trace=result["trace"],
             rewrite_count=result["rewrite_count"],
         )

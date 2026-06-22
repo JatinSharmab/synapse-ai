@@ -13,17 +13,20 @@ from app.agents.nodes import (
 from app.graph.routing import route_after_router, route_after_sentinel
 from app.models.domain import Route
 from app.models.state import SynapseState
+from app.providers.base import LLMProvider
 
 
-def build_synapse_graph() -> CompiledStateGraph[SynapseState, None, SynapseState, SynapseState]:
+def build_synapse_graph(
+    provider: LLMProvider,
+) -> CompiledStateGraph[SynapseState, None, SynapseState, SynapseState]:
     builder = StateGraph(SynapseState)
 
-    builder.add_node("router", router)
+    builder.add_node("router", lambda state: router(state, provider))
     builder.add_node(Route.DOCUMENT_SEARCH.value, document_search)
     builder.add_node(Route.VIDEO_SEARCH.value, video_search)
     builder.add_node(Route.DATA_ANALYTICS.value, data_analytics)
     builder.add_node(Route.DIRECT_ANSWER.value, direct_answer)
-    builder.add_node("synthesizer", synthesizer)
+    builder.add_node("synthesizer", lambda state: synthesizer(state, provider))
     builder.add_node("sentinel", sentinel)
 
     builder.add_edge(START, "router")

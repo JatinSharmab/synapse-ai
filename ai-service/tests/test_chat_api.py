@@ -5,7 +5,7 @@ from app.main import create_app
 
 
 def test_chat_invoke_returns_safe_graph_state_summary() -> None:
-    app = create_app(Settings(app_env="test"))
+    app = create_app(Settings(app_env="test", ai_provider="mock"))
 
     with TestClient(app) as client:
         response = client.post(
@@ -22,9 +22,15 @@ def test_chat_invoke_returns_safe_graph_state_summary() -> None:
     assert payload["route"] == "document_search"
     assert payload["trace"] == [
         "router.selected=document_search",
+        "provider.router=mock",
         "tool=document_search",
         "synthesizer=draft",
+        "provider.synthesizer=mock",
         "sentinel=approve",
+    ]
+    assert [item["operation"] for item in payload["inference_metadata"]] == [
+        "generate_structured",
+        "generate",
     ]
     assert "user_query" not in payload
     assert "draft_response" not in payload
@@ -33,7 +39,7 @@ def test_chat_invoke_returns_safe_graph_state_summary() -> None:
 
 
 def test_chat_invoke_rejects_unknown_fields() -> None:
-    app = create_app(Settings(app_env="test"))
+    app = create_app(Settings(app_env="test", ai_provider="mock"))
 
     with TestClient(app) as client:
         response = client.post(

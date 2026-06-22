@@ -3,8 +3,8 @@
 ## Status and Conventions
 
 Unless marked as implemented, contracts in this document are **planned, versioned design contracts**.
-Phase 2 implements the unversioned process-liveness endpoint `GET /health` on both backends and
-`POST /api/v1/chat/invoke` on the AI service. Exact future routes may evolve through recorded
+Phase 3 implements the unversioned process-liveness endpoint `GET /health` on both backends,
+`POST /api/v1/chat/invoke`, and `GET /api/v1/system/ai-provider` on the AI service. Exact future routes may evolve through recorded
 architecture decisions before implementation.
 
 - External base path: `/api/v1`
@@ -120,10 +120,10 @@ Returns trusted display metadata, modality, ingestion status, version/checksum m
 
 ## Chat and Streaming
 
-### `POST /api/v1/chat/invoke` — Implemented in Phase 2
+### `POST /api/v1/chat/invoke` — Implemented in Phase 2, provider-backed in Phase 3
 
-Synchronously invokes the deterministic LangGraph workflow. `thread_id` is propagated for correlation
-only; Phase 2 has no checkpointer, memory, or database.
+Synchronously invokes the LangGraph workflow. `thread_id` is propagated for correlation only;
+Phase 3 has no checkpointer, memory, retrieval, or database.
 
 ```json
 {
@@ -133,13 +133,31 @@ only; Phase 2 has no checkpointer, memory, or database.
 ```
 
 The safe response includes `request_id`, `thread_id`, `intent`, `route`, `final_response`, empty
-Phase 2 citation/Gen-UI arrays, `guardrail_result`, public errors, safe trace events, and a bounded
-`rewrite_count`. It excludes `user_query`, `draft_response`, `retrieved_context`, `tool_results`,
-prompts, and private reasoning.
+citation/Gen-UI arrays, `guardrail_result`, public errors, safe trace events, safe inference metadata,
+and a bounded `rewrite_count`. It excludes `user_query`, `draft_response`, retrieved context, tool
+internals, prompts, credentials, and private reasoning.
 
 `message` is trimmed and limited to 4,000 characters. `thread_id` is trimmed, limited to 128
 characters, and restricted to letters, digits, `.`, `_`, `:`, and `-`. Unknown request fields fail
 validation.
+
+### `GET /api/v1/system/ai-provider` — Implemented in Phase 3
+
+Returns only credential-free runtime provider information:
+
+```json
+{
+  "provider": "mock",
+  "models": {
+    "chat": "mock-chat-v1",
+    "vision": "mock-vision-v1",
+    "embedding": "mock-embedding-v1"
+  },
+  "mock": true
+}
+```
+
+The response never includes credentials, provider request payloads, prompts, or hidden reasoning.
 
 ### `POST /api/v1/runs`
 

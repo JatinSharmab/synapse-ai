@@ -2,9 +2,9 @@
 
 Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstrate senior-level AI engineering. It will reason across PDF documents, video content, and CSV data while keeping answers grounded in traceable evidence.
 
-> **Project status:** Phase 2 — deterministic LangGraph orchestration core. The typed graph, safe
-> invoke endpoint, frontend shell, and backend health endpoints run locally; model providers,
-> retrieval, persistence, and cloud infrastructure are not connected.
+> **Project status:** Phase 3 — provider-based LLM inference. The typed graph uses either a
+> deterministic offline Mock provider or Mistral for structured routing and synthesis. Retrieval,
+> persistence, and cloud infrastructure are not connected.
 
 ## Intended Capabilities
 
@@ -22,13 +22,13 @@ Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstra
 
 ## Monorepo
 
-Phase 2 establishes the service boundaries and deterministic orchestration without implementing
-model-backed generation, retrieval, or persistence.
+Phase 3 adds a typed, replaceable model-provider boundary while retaining the Phase 2 graph and
+deterministic Sentinel. It does not implement retrieval or persistence.
 
 ```text
 frontend/       React, TypeScript, Vite, Tailwind CSS development shell
 gateway/        Thin Express, TypeScript, Zod, CORS, Helmet gateway foundation
-ai-service/     FastAPI, Pydantic v2, LangGraph orchestration, typed API and health
+ai-service/     FastAPI, Pydantic v2, LangGraph, Mistral/Mock providers, typed API
 shared/         Reserved for implementation-neutral, versioned contracts
 scripts/        Reserved for transparent repository automation
 sample-data/    Reserved for curated, non-sensitive fixtures
@@ -96,10 +96,11 @@ Local URLs:
 - Gateway health: `http://localhost:4000/health`
 - AI service health: `http://localhost:8000/health`
 - AI service OpenAPI: `http://localhost:8000/docs`
+- Active AI provider: `http://localhost:8000/api/v1/system/ai-provider`
 
 Both health endpoints return `service`, `status`, `version`, and `environment`.
 
-Invoke the deterministic Phase 2 graph:
+Invoke the Phase 3 graph:
 
 ```powershell
 $body = @{
@@ -115,8 +116,32 @@ Invoke-RestMethod `
 ```
 
 The response is a safe state summary containing route, final response, guardrail result, bounded
-rewrite count, and operational trace. It excludes the user query, draft response, tool internals, and
-private reasoning.
+rewrite count, operational trace, and safe model/latency/token metadata. It excludes the user query,
+draft response, tool internals, prompts, credentials, and private reasoning.
+
+## AI Provider Modes
+
+Mock mode is the default and requires neither credentials nor network access:
+
+```text
+AI_PROVIDER=mock
+```
+
+To use Mistral, create `ai-service/.env` from `ai-service/.env.example` and set:
+
+```text
+AI_PROVIDER=mistral
+MISTRAL_API_KEY=your-local-secret
+MISTRAL_CHAT_MODEL=mistral-small-latest
+MISTRAL_VISION_MODEL=mistral-small-latest
+MISTRAL_EMBED_MODEL=mistral-embed
+AI_REQUEST_TIMEOUT_SECONDS=30
+AI_MAX_TRANSIENT_RETRIES=2
+```
+
+The `.env` file is ignored by Git. Mistral mode fails startup with a safe configuration error when
+the API key is absent. Provider calls use a configured timeout, retry only connection/timeouts and
+server failures, and do not automatically retry HTTP 429 quota/rate-limit responses.
 
 ## Quality Commands
 
@@ -137,8 +162,8 @@ From `ai-service/`:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-These checks require no AI provider, database, object store, or network access after dependencies are
-installed.
+Automated tests explicitly run in Mock mode and require no database, object store, provider network,
+or Mistral credentials after dependencies are installed.
 
 ## Planned Deployment Profile
 
@@ -168,7 +193,8 @@ This is intentionally different from a production enterprise topology. See [Free
 
 ## Current Scope and Phase Boundary
 
-Phase 2 intentionally stops at deterministic routing, placeholder capability nodes, synthesis,
-Sentinel decisions, safe tracing, and a bounded LangGraph rewrite path. MongoDB, authentication,
-Mistral, real RAG, embeddings, ChromaDB, Supabase, persistent threads, and Gen-UI generation are not
-implemented.
+Phase 3 intentionally stops at provider-backed structured routing and synthesis, safe inference
+metadata, deterministic placeholder capability nodes and Sentinel decisions, and a bounded
+LangGraph rewrite path. The provider interface exposes text generation, structured generation,
+vision description, and embeddings, but only routing and synthesis are connected. MongoDB,
+authentication, real RAG, ChromaDB, Supabase, persistent threads, and Gen-UI are not implemented.

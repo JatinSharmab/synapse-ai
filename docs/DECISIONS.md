@@ -17,6 +17,7 @@ This is a lightweight architecture decision record (ADR) log. New architecture-c
 | ADR-009 | Safe operational traces without chain-of-thought | Accepted | 2026-06-12 |
 | ADR-010 | Independent Phase 1 workspaces and application factories | Accepted | 2026-06-15 |
 | ADR-011 | Deterministic Phase 2 graph with bounded rewrites | Accepted | 2026-06-19 |
+| ADR-012 | Provider-backed inference with explicit retry ownership | Accepted | 2026-06-24 |
 
 ## ADR-001 — AI-First Monorepo with Strict Service Boundaries
 
@@ -110,6 +111,26 @@ LangGraph architecture. Adding a checkpointer or provider was rejected as future
 **Consequences:** Routing and termination are deterministic, fast, and network-free after installation.
 `thread_id` is correlation data only, placeholder tools return explicit not-implemented results, and
 the implementation does not yet demonstrate retrieval or model quality.
+
+## ADR-012 — Provider-Backed Inference with Explicit Retry Ownership
+
+**Status:** Accepted  
+**Context:** Phase 3 needs real Mistral inference without coupling graph nodes to an SDK, leaking
+credentials, making tests network-dependent, or multiplying automatic retries during quota events.  
+**Decision:** Define one typed `LLMProvider` boundary for text, structured, vision, and embedding
+operations. Inject the selected provider into Router and Synthesizer; keep Sentinel deterministic.
+Use native Pydantic structured output for routing. Default to a deterministic Mock provider and
+require it for automated tests. In the Mistral adapter, disable SDK retry behavior and own a bounded
+retry policy that retries only connection/timeouts and HTTP 5xx failures. Return HTTP 429 without an
+automatic quota retry. Expose credential-free provider identity and safe inference metadata.  
+**Alternatives:** Calling the SDK directly from nodes was rejected because it would leak provider
+types into orchestration. Retrying all failures was rejected because 4xx failures require caller or
+quota changes. A model-backed Sentinel was rejected because it is outside Phase 3 and weakens the
+existing deterministic termination invariant.  
+**Consequences:** Provider selection is testable and Mock mode starts without credentials or network
+access. The adapter has additional normalization code, and live Mistral behavior requires a user
+supplied API key and available quota. Vision and embedding methods exist but remain disconnected
+until retrieval phases are authorized.
 
 ## ADR Template
 

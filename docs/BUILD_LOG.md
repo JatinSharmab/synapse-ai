@@ -135,3 +135,70 @@ This log records completed project phases. Entries describe work actually perfor
 - Deterministic CSV execution beyond the placeholder graph node
 - MongoDB, Supabase, checkpointers, and persistent thread memory
 - Production citations, generated UI, semantic guardrails, evaluation, and streaming
+
+## Phase 3 — Provider-Based LLM Inference
+
+**Date:** 2026-06-24  
+**Status:** Complete
+
+### Delivered
+
+- Added a typed `LLMProvider` abstraction for text generation, Pydantic structured generation,
+  image description, embeddings, and credential-free provider information.
+- Added a deterministic, network-free `MockProvider` that supports every provider operation and is
+  used by all automated AI-service tests.
+- Added a `MistralProvider` using the current Mistral Python SDK with native structured parsing,
+  explicit request timeouts, safe response normalization, and token/latency/retry metadata.
+- Disabled SDK-owned retries and added a small bounded adapter policy for connection failures,
+  timeouts, and HTTP 5xx responses only. HTTP 429 quota/rate-limit responses return immediately and
+  are not automatically retried.
+- Added typed environment selection through `AI_PROVIDER=mistral|mock`, `SecretStr` credential
+  handling, model identifiers, request timeout, and retry-count settings.
+- Moved Router and Synthesizer instructions into dedicated prompt modules.
+- Connected Router to Pydantic structured provider output and Synthesizer to provider text
+  generation while retaining deterministic placeholder tools and deterministic Sentinel behavior.
+- Extended the safe graph summary with provider, operation, model, latency, retry count, and token
+  usage where available; prompts, credentials, input text, drafts, and private reasoning remain
+  excluded.
+- Added `GET /api/v1/system/ai-provider`, returning only provider name, model identifiers, and Mock
+  status.
+- Documented Mock/Mistral switching, environment variables, timeout/retry behavior, API changes, and
+  the provider architecture decision.
+
+### Verification
+
+- Mock mode routes refund-policy, video-timestamp, regional-revenue, and RAG-definition queries to
+  document, video, analytics, and direct-answer nodes respectively.
+- Provider operation tests cover deterministic text generation, structured generation, vision
+  description, and embeddings without internet access.
+- Mock mode starts without a Mistral API key.
+- The provider-status API returns only safe Mock configuration and does not expose a configured
+  unused credential.
+- A simulated Mock-provider quota failure returns a safe HTTP 429 envelope after one attempt.
+- The graph still terminates, and Sentinel performs at most one rewrite cycle.
+- `ruff check --no-cache app tests` passed.
+- `ruff format --no-cache --check app tests` passed for all 42 Python files.
+- Strict `mypy app tests` passed across 42 source files.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 16 AI-service tests.
+- Existing npm lint, TypeScript checks, gateway smoke test, and production builds passed.
+
+### Resolved During Verification
+
+- Ruff, pytest, and mypy could not write their default cache directories in this execution
+  environment. Final checks used no-cache flags or a writable temporary mypy cache; no failure was
+  hidden.
+- The current Mistral 2.9 SDK exposes the client from `mistralai.client`; the adapter imports and
+  types against the installed SDK surface and passed strict mypy validation.
+- A combined repository check exceeded the execution yield window after frontend typechecking, so
+  lint, typecheck, test, and build were rerun separately with explicit successful exit codes.
+- Git status inspection was unavailable because Git rejected the workspace's ownership as unsafe;
+  no Git configuration was modified to bypass that repository-level safety check.
+
+### Deferred by Design
+
+- Real document/video retrieval, RAG, chunking, BM25, vector search, and ChromaDB
+- Database, object storage, authentication, persistence, and thread memory
+- Connection of vision and embedding provider methods to ingestion or retrieval workflows
+- Real analytics execution, production citations, Gen-UI, semantic Sentinel checks, evaluation, SSE,
+  and deployment
+- Live Mistral verification, which requires a user-provided API key, network access, and quota

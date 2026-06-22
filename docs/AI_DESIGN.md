@@ -2,10 +2,10 @@
 
 ## Status
 
-This is the target AI design. Phase 2 implements the deterministic LangGraph orchestration core,
-typed state, placeholder capability nodes, bounded Sentinel rewrite, safe traces, and synchronous
-invoke API. Model providers, real retrieval, analytics execution, persistence, citations, and Gen-UI
-generation remain future work.
+This is the target AI design. Phase 3 implements the typed LangGraph core plus replaceable Mistral
+and Mock providers. Structured provider output selects the route, provider text generation produces
+the draft, and Sentinel remains deterministic and bounded. Real retrieval, analytics execution,
+persistence, citations, and Gen-UI generation remain future work.
 
 ## Design Goals
 
@@ -110,8 +110,9 @@ orchestration service also supplies a recursion limit of 12 as a secondary fail-
 
 The implemented state contains `request_id`, `thread_id`, `user_query`, `intent`, `route`,
 `retrieved_context`, `tool_results`, `draft_response`, `final_response`, `citations`, `genui`,
-`guardrail_result`, `errors`, `trace`, and `rewrite_count`. Only a safe subset is serialized by the
-public API; user input, drafts, retrieved context, and tool internals are excluded.
+`guardrail_result`, `errors`, `inference_metadata`, `trace`, and `rewrite_count`. Only a safe subset
+is serialized by the public API; user input, drafts, retrieved context, tool internals, prompts, and
+credentials are excluded.
 
 ## Router
 
@@ -119,9 +120,9 @@ The Router selects one of `document_search`, `video_search`, `data_analytics`, o
 
 Routing combines deterministic signals with structured model classification. Examples include explicit dataset operations, selected source types, and references to pages or timestamps. Its output is schema-validated and includes a route, confidence, brief safe rationale category, and typed tool parameters—not hidden reasoning.
 
-In Phase 2, routing is deliberately deterministic and uses case-insensitive, word-boundary keyword
-matching. Priority is analytics, then video, then documents, with direct answer as the fallback. This
-is test scaffolding for the graph contract, not semantic model routing.
+In Phase 3, Router calls `LLMProvider.generate_structured()` with a Pydantic
+`RouterClassification`. Mistral uses native structured parsing; Mock returns the same schema through
+deterministic, word-boundary classification so tests remain offline and reproducible.
 
 ## Document Search Tool
 
@@ -273,12 +274,30 @@ Metrics link stages through correlation and run IDs. Provider calls record model
 
 ## Provider Abstractions and Mock Mode
 
-`LLMProvider` encapsulates structured generation and any necessary semantic judgment. The Mistral implementation reads credentials from environment variables. The mock implementation returns deterministic, fixture-driven responses and never needs network access.
+`LLMProvider` exposes `generate()`, `generate_structured()`, `describe_image()`, and `embed()`.
+Phase 3 connects only structured generation in Router and text generation in Synthesizer. Vision and
+embedding methods establish the provider contract for later phases; they are not retrieval.
+
+`MistralProvider` reads its credential only from typed environment configuration and never returns or
+logs it. Requests have a bounded timeout. The adapter disables SDK-level retries and applies its own
+small bounded policy: network failures, timeouts, and HTTP 5xx responses may retry; HTTP 429 and
+other client failures do not. Successful results expose only provider, model, operation, latency,
+retry count, and token counts when supplied by the provider.
+
+`MockProvider` returns deterministic, schema-validated, fixture-driven responses without network
+access and is the mandatory automated-test provider.
 
 The runtime setting is planned as:
 
 ```text
 AI_PROVIDER=mistral|mock
+MISTRAL_API_KEY=
+MISTRAL_CHAT_MODEL=
+MISTRAL_VISION_MODEL=
+MISTRAL_EMBED_MODEL=
+AI_REQUEST_TIMEOUT_SECONDS=30
+AI_MAX_TRANSIENT_RETRIES=2
 ```
 
-Comparable abstractions isolate metadata, object storage, vector search, and embeddings. Provider-specific models and SDK types should not leak into graph state or public contracts.
+Provider-specific SDK types do not enter graph state or public contracts. The safe provider endpoint
+returns only the active provider, model identifiers, and whether it is Mock mode.

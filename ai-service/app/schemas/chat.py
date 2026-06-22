@@ -8,6 +8,7 @@ from app.models.domain import (
     Intent,
     Route,
 )
+from app.schemas.inference import InferenceMetadata
 
 
 class ChatInvokeRequest(BaseModel):
@@ -37,5 +38,6 @@ class ChatStateSummary(BaseModel):
     genui: list[GenUIComponent]
     guardrail_result: GuardrailResult
     errors: list[ErrorRecord]
+    inference_metadata: list[InferenceMetadata]
     trace: list[str]
     rewrite_count: int = Field(ge=0, le=1)
