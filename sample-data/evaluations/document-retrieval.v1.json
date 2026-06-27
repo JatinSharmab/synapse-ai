@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "dataset_id": "synapse-document-retrieval-v1",
+  "documents": [
+    {
+      "filename": "synapse-policy.pdf",
+      "path": "documents/synapse-policy.pdf"
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "refund-reference",
+      "query": "Which refund approval uses reference code ORION-30?",
+      "relevant_document": "synapse-policy.pdf",
+      "relevant_page": 2,
+      "relevant_chunk_index": 1
+    },
+    {
+      "case_id": "security-phrase",
+      "query": "Where is the blue heron protocol described?",
+      "relevant_document": "synapse-policy.pdf",
+      "relevant_page": 3,
+      "relevant_chunk_index": 2
+    },
+    {
+      "case_id": "commuter-enrollment",
+      "query": "When do commuter benefit enrollment changes take effect?",
+      "relevant_document": "synapse-policy.pdf",
+      "relevant_page": 1,
+      "relevant_chunk_index": 0
+    }
+  ]
+}
