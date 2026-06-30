@@ -1,0 +1,7 @@
+region,product,revenue,units,active
+North,Atlas,120.50,10,true
+North,Beacon,80.25,8,true
+South,Atlas,150.00,12,true
+South,Beacon,95.75,9,false
+West,Atlas,110.00,11,true
+West,Beacon,70.50,7,false
