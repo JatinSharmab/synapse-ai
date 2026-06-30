@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,10 +33,33 @@ class GuardrailDecision(StrEnum):
     BLOCK = "block"
 
 
-class RetrievedContext(StrictDomainModel):
+class DocumentRetrievedContext(StrictDomainModel):
     context_id: str
-    modality: Literal["document", "video", "analytics"]
+    modality: Literal["document"] = "document"
     content: str
+    document_id: str
+    filename: str
+    page: int = Field(ge=1)
+    chunk_id: str
+    similarity_score: float = Field(ge=0, le=1)
+
+
+class VideoRetrievedContext(StrictDomainModel):
+    context_id: str
+    modality: Literal["video"] = "video"
+    content: str
+    video_id: str
+    filename: str
+    segment_id: str
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(gt=0)
+    similarity_score: float = Field(ge=0, le=1)
+
+
+RetrievedContext = Annotated[
+    DocumentRetrievedContext | VideoRetrievedContext,
+    Field(discriminator="modality"),
+]
 
 
 class ToolResult(StrictDomainModel):
@@ -45,10 +68,31 @@ class ToolResult(StrictDomainModel):
     summary: str
 
 
-class Citation(StrictDomainModel):
+class DocumentCitation(StrictDomainModel):
     citation_id: str
-    source_type: Literal["document", "video", "analytics"]
+    source_type: Literal["document"] = "document"
+    document_id: str
+    filename: str
+    page: int = Field(ge=1)
+    chunk_id: str
     locator: str
+
+
+class VideoCitation(StrictDomainModel):
+    citation_id: str
+    source_type: Literal["video"] = "video"
+    video_id: str
+    filename: str
+    segment_id: str
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(gt=0)
+    locator: str
+
+
+Citation = Annotated[
+    DocumentCitation | VideoCitation,
+    Field(discriminator="source_type"),
+]
 
 
 class GenUIComponent(StrictDomainModel):

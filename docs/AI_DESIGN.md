@@ -2,10 +2,10 @@
 
 ## Status
 
-This is the target AI design. Phase 3 implements the typed LangGraph core plus replaceable Mistral
-and Mock providers. Structured provider output selects the route, provider text generation produces
-the draft, and Sentinel remains deterministic and bounded. Real retrieval, analytics execution,
-persistence, citations, and Gen-UI generation remain future work.
+This is the target AI design. Phase 6 adds bounded local MP4 ingestion and semantic timestamp
+retrieval alongside the Phase 5 hybrid PDF pipeline. Structured provider output still selects the
+route, provider text generation produces the draft, and Sentinel remains deterministic and bounded.
+Analytics execution and Gen-UI remain future work.
 
 ## Design Goals
 
@@ -30,26 +30,91 @@ Synapse uses a shared evidence model across modality-specific ingestion and retr
 6. Index embeddings in ChromaDB and lexical terms in BM25.
 7. Persist sufficient chunk and embedding data in the durable repository for index reconstruction.
 
+Phase 4 implements the dense portion of this pipeline. It validates PDF extension, media type,
+bounded size, signature, readability, encryption state, and page count before extraction. Semantic
+chunking prefers headings, then paragraphs, then sentences, and finally word boundaries only for an
+oversized sentence. Configurable maximum, minimum, and overlap token estimates are enforced without
+joining text across page boundaries. Every persisted chunk carries `document_id`, trusted
+`filename`, `page_number`, `chunk_id`, global `chunk_index`, `text`, `token_estimate`, SHA-256
+`checksum`, and UTC `created_at`.
+
+Repeated short page-edge text and malformed whitespace are normalized before chunking. PDFs below
+the configured extractable-text threshold are recorded with `ocr_required=true` and zero chunks;
+Phase 4 deliberately does not invoke OCR.
+
 ### Video Pipeline
 
-1. Validate the stored MP4 object and inspect streams/duration with `ffprobe`.
-2. Detect scene boundaries and sample representative keyframes with FFmpeg.
-3. Generate concise vision descriptions for selected frames only.
-4. Optionally transcribe audio when enabled and useful.
-5. Combine aligned frame descriptions and transcript spans into temporal segments.
-6. Store segment IDs, start/end timestamps, frame references, transcript references, checksums, model versions, and embeddings.
+1. Validate the `.mp4` extension, media type, bounded byte size, MP4 signature, and a server-generated
+   storage path.
+2. Inspect container/stream metadata with `ffprobe`, reject non-video containers and over-duration
+   inputs, and record duration, dimensions, and audio presence.
+3. Select timestamps at `KEYFRAME_INTERVAL_SECONDS`, capped by `MAX_KEYFRAMES`, then ask FFmpeg for
+   exactly one JPEG at each selected timestamp. No every-frame scan is performed.
+4. Optionally call `LLMProvider.describe_image()` once per selected keyframe. After the first vision
+   failure, stop further vision calls, mark enrichment unavailable, and continue ingestion.
+5. Optionally extract bounded mono 16 kHz PCM audio and pass it to `TranscriptionProvider`. The
+   disabled and Mock implementations keep local development and tests free of paid dependencies.
+6. Align timestamped transcript spans and visual descriptions into temporal segments, embed their
+   combined text, persist authoritative metadata/embeddings, and index a separate Chroma collection.
+7. Resolve semantic matches back through authoritative segment records and return `video_id`,
+   filename, `segment_id`, start/end seconds, description, and bounded score.
 
-Analyzing every frame is explicitly out of scope. Sampling thresholds and per-video limits cap latency and API use.
+Each temporal segment stores `video_id`, trusted `filename`, `segment_id`, `start_seconds`,
+`end_seconds`, transcript, visual description, combined text, a storage-root-relative keyframe path,
+and safe embedding metadata. `MAX_VIDEO_SIZE_MB`, `MAX_VIDEO_DURATION_SECONDS`, `MAX_KEYFRAMES`, and
+`KEYFRAME_INTERVAL_SECONDS` cap cost and latency. The current Phase 6 selector is interval-based,
+not content-aware scene detection; it is intentionally predictable for small portfolio videos.
+
+FFmpeg/ffprobe subprocesses never interpolate user input into a shell. Calls use explicit argument
+lists, `shell=False`, validated in-root paths, configured timeouts, checked return codes, and output
+existence checks. User filenames are display metadata only; generated IDs define artifact paths.
 
 ### Hybrid Retrieval
 
-For documents and videos, the query is searched through both dense vector retrieval and BM25 lexical retrieval. Ranked lists are combined using Reciprocal Rank Fusion:
+Phase 5 searches document chunks through both dense vector retrieval and BM25 lexical retrieval.
+Before either retrieval stage, Unicode and whitespace are normalized and common request scaffolding
+such as “find … in my documents” is removed deterministically. The rewrite does not call an LLM and
+does not invent query facts.
+
+**Vector search** embeds the normalized query with the configured `LLMProvider` and queries the
+Chroma cosine index. It is strongest when query and evidence share meaning but not necessarily exact
+wording. Chroma match identifiers are resolved through the authoritative metadata repository before
+they can become candidates.
+
+**BM25 lexical search** uses Apache-licensed `rank-bm25` over the authoritative stored chunk text.
+Synapse applies the same lowercase, Unicode-aware tokenization and stop-word filtering to query and
+corpus. The small local index is rebuilt in memory per request in Phase 5, which avoids a second
+durable index while the corpus is still portfolio-scale. BM25 is particularly useful for exact
+identifiers, product codes, names, and uncommon policy terms that dense retrieval can underweight.
+
+The two ranked lists are combined using **Reciprocal Rank Fusion (RRF)**:
 
 ```text
 RRF_score(item) = sum(1 / (k + rank_in_list))
 ```
 
-A lightweight, locally executable reranker then considers query-evidence relevance and diversity. Context selection enforces token limits, modality-aware diversity, source permissions, and provenance completeness. Missing provenance makes an item ineligible for grounded answer context.
+A candidate receives one reciprocal-rank contribution from each list in which it appears. Phase 5
+uses `k=60`; it fuses ranks rather than trying to compare incomparable cosine and BM25 score scales.
+Candidates found by both retrievers are naturally rewarded.
+
+The **lightweight reranker** is a deterministic CPU-only coverage scorer over the fused pool. It
+combines normalized RRF position, query-term coverage, exact identifier coverage, and exact phrase
+presence. This avoids paid APIs, runtime model downloads, and network-dependent tests. The bounded
+**context selector** then removes duplicate chunk IDs, requires complete document/page provenance,
+and selects at most `FINAL_CONTEXT_K` chunks for synthesis.
+
+Hybrid retrieval can outperform vector-only retrieval because semantic similarity and lexical
+matching fail in different ways: vectors can recover paraphrases, while BM25 preserves rare exact
+terms. RRF provides a stable union without score calibration, and reranking rechecks the query
+against the smaller fused pool. Hybrid retrieval is not guaranteed to win every dataset, so Synapse
+reports vector-only and hybrid metrics separately instead of assuming improvement.
+
+The normal search/chat APIs expose only selected evidence and one bounded final relevance score in
+the backward-compatible `similarity_score` field. Stage candidates and raw stage scores are internal.
+When and only when `DEBUG=true`, the application registers
+`POST /api/v1/debug/retrieval/documents`, which exposes `vector_candidates`, `bm25_candidates`,
+`fused_candidates`, `reranked_candidates`, and `final_context`. With `DEBUG=false`, the route is not
+registered and is absent from OpenAPI.
 
 ## LangGraph State
 
@@ -126,11 +191,20 @@ deterministic, word-boundary classification so tests remain offline and reproduc
 
 ## Document Search Tool
 
-The tool accepts a normalized query, authorized document IDs, retrieval limits, and optional filters. It returns evidence items with trusted filenames, page numbers, text excerpts, retrieval scores, and chunk IDs. It cannot invent or rewrite provenance. Empty or weak retrieval is an explicit result that the Synthesizer must respect.
+The Phase 5 tool accepts a query, optional document IDs, and a bounded final-context limit. It runs
+the hybrid stages described above and returns selected text with trusted document IDs, filenames,
+page numbers, chunk IDs, and final relevance scores. Orphaned index matches and provenance-incomplete
+context are discarded. The Synthesizer receives only final context and deterministic citations; it
+cannot author or rewrite provenance. Empty retrieval is an explicit result that the Synthesizer must
+respect.
 
 ## Video Search Tool
 
-The tool accepts a normalized query, authorized video IDs, retrieval limits, and optional time filters. It returns temporal evidence with trusted video names, start/end timestamps, segment descriptions, optional transcript excerpts, representative frame references, and scores. It never converts an approximate model guess into a precise timestamp.
+The Phase 6 tool embeds a normalized query, searches the video-segment Chroma collection, resolves
+every match through the authoritative metadata repository, and returns bounded temporal evidence
+with trusted video names, segment IDs, start/end timestamps, descriptions, and scores. LangGraph
+constructs citations only from those resolved records. It never converts a model guess into a
+precise timestamp or accepts model-authored provenance.
 
 ## Data Analytics Tool
 
@@ -229,6 +303,11 @@ A final claim-to-evidence map associates answer spans or claim IDs with evidence
 
 Evaluation runs against versioned fixtures and records configuration, dataset version, provider mode, and latency. Mock mode provides deterministic CI coverage; curated Mistral runs may be executed separately when quota is available.
 
+Phase 5 adds `sample-data/evaluations/document-retrieval.v1.json`. Each case labels the query,
+relevant filename, page, and global chunk index. The offline evaluator runs the same cases through
+`vector_only` and `hybrid` modes and reports Recall@K and Mean Reciprocal Rank. Run it from
+`ai-service/` with `python -m app.evaluation.cli`.
+
 ### Retrieval
 
 - Recall@K against labeled relevant evidence
@@ -275,8 +354,10 @@ Metrics link stages through correlation and run IDs. Provider calls record model
 ## Provider Abstractions and Mock Mode
 
 `LLMProvider` exposes `generate()`, `generate_structured()`, `describe_image()`, and `embed()`.
-Phase 3 connects only structured generation in Router and text generation in Synthesizer. Vision and
-embedding methods establish the provider contract for later phases; they are not retrieval.
+Phase 6 uses structured generation in Router, text generation in Synthesizer, embeddings during
+document/video indexing and querying, and optional vision descriptions for selected video
+keyframes. BM25, RRF, document reranking, temporal alignment, and context selection remain local
+deterministic operations.
 
 `MistralProvider` reads its credential only from typed environment configuration and never returns or
 logs it. Requests have a bounded timeout. The adapter disables SDK-level retries and applies its own

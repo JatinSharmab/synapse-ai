@@ -24,6 +24,7 @@ def test_chat_invoke_returns_safe_graph_state_summary() -> None:
         "router.selected=document_search",
         "provider.router=mock",
         "tool=document_search",
+        "retrieval.count=0",
         "synthesizer=draft",
         "provider.synthesizer=mock",
         "sentinel=approve",

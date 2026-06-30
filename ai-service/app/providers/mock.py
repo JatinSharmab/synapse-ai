@@ -1,6 +1,9 @@
 import json
+import re
 from collections import deque
 from collections.abc import Sequence
+from hashlib import sha256
+from math import sqrt
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -22,6 +25,27 @@ from app.schemas.inference import (
 from app.services.routing_rules import classify_for_mock
 
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
+MOCK_EMBEDDING_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "document",
+        "documents",
+        "find",
+        "for",
+        "in",
+        "is",
+        "my",
+        "of",
+        "on",
+        "the",
+        "this",
+        "to",
+        "what",
+    }
+)
 
 
 class MockProvider(LLMProvider):
@@ -143,8 +167,17 @@ class MockProvider(LLMProvider):
 
     @staticmethod
     def _deterministic_vector(text: str) -> list[float]:
-        codepoint_sum = sum(ord(character) for character in text)
-        return [float(len(text)), float(codepoint_sum % 997) / 997]
+        vector = [0.0] * 256
+        for token in re.findall(r"\w+", text.casefold()):
+            if token in MOCK_EMBEDDING_STOP_WORDS:
+                continue
+            digest = sha256(token.encode()).digest()
+            vector[int.from_bytes(digest[:2]) % len(vector)] += 1.0
+        magnitude = sqrt(sum(value * value for value in vector))
+        if magnitude == 0:
+            vector[0] = 1.0
+            return vector
+        return [value / magnitude for value in vector]
 
     @staticmethod
     def _synthesize(user_prompt: str) -> str:
@@ -164,7 +197,23 @@ class MockProvider(LLMProvider):
                 )
             return f"Mock mode generated a direct response for: {query}"
 
-        summary = "The selected capability is not implemented in Phase 3."
+        if route == Route.DOCUMENT_SEARCH.value:
+            retrieved_context = payload.get("retrieved_context")
+            if isinstance(retrieved_context, list) and retrieved_context:
+                first = retrieved_context[0]
+                if isinstance(first, dict) and isinstance(first.get("content"), str):
+                    return f"Retrieved document evidence states: {first['content']}"
+            return "No indexed document evidence was found for this request."
+
+        if route == Route.VIDEO_SEARCH.value:
+            retrieved_context = payload.get("retrieved_context")
+            if isinstance(retrieved_context, list) and retrieved_context:
+                first = retrieved_context[0]
+                if isinstance(first, dict) and isinstance(first.get("content"), str):
+                    return f"Retrieved timestamped video evidence states: {first['content']}"
+            return "No indexed timestamped video evidence was found for this request."
+
+        summary = "The selected capability is not implemented."
         if isinstance(tool_result, dict) and isinstance(tool_result.get("summary"), str):
             summary = tool_result["summary"]
         return f"Synapse selected {route}. {summary} No retrieval result was fabricated."

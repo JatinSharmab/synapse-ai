@@ -2,10 +2,10 @@
 
 ## Status and Scope
 
-This document defines the target architecture. Through Phase 3, the repository implements the local
-monorepo foundation, strongly typed LangGraph orchestration, and replaceable Mock/Mistral inference
-for Router and Synthesizer. Retrieval, persistence, ingestion, streaming, and cloud resources shown
-below remain design contracts and are not implemented or deployed.
+This document defines the target architecture. Through Phase 6, the repository implements the local
+monorepo foundation, strongly typed LangGraph orchestration, replaceable Mock/Mistral inference, and
+citation-grounded retrieval over PDFs and small locally uploaded MP4 videos. Analytics execution,
+streaming, and cloud resources shown below remain design contracts.
 
 ## Architectural Principles
 
@@ -89,13 +89,18 @@ It must not import or reproduce LangGraph, prompts, embeddings, vector search, r
 
 ### AI Service
 
-The Phase 3 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
-settings, OpenAPI, process liveness, and LangGraph orchestration. Provider-backed Router and
-Synthesizer nodes run through a typed `LLMProvider`; capability nodes remain explicit placeholders
-and Sentinel remains deterministic with a one-rewrite maximum. Safe inference metadata includes
-model identifiers, latency, retries, and token usage where available. Later approved phases will add
-multimodal ingestion, real hybrid retrieval, constrained analytics execution, structured Gen-UI,
-citation grounding, expanded guardrails, evaluations, and streaming.
+The Phase 6 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
+settings, OpenAPI, process liveness, LangGraph orchestration, and local PDF/video RAG slices.
+PDF ingestion validates the file, extracts normalized page-aware text with PyMuPDF, creates semantic
+chunks, embeds them through `LLMProvider`, persists trusted metadata, and indexes vectors in
+ChromaDB. Document Search normalizes the query, combines Chroma vector results with `rank-bm25`
+lexical results through Reciprocal Rank Fusion, reranks locally on CPU, and selects bounded trusted
+context. Video ingestion validates MP4 signatures and bounded probe metadata, extracts only a
+configured maximum of representative frames, optionally enriches them through vision and offline
+mock transcription providers, constructs timestamped segments, and indexes their embeddings in a
+separate Chroma collection. Document and video graph routes return real evidence with deterministic
+page or timestamp citations; analytics remains a placeholder. Sentinel remains deterministic with
+a one-rewrite maximum.
 
 ## Bounded LangGraph Flow
 
@@ -140,7 +145,7 @@ flowchart TB
 
     subgraph Video
         VID[MP4 object] --> VV[Validate + ffprobe metadata]
-        VV --> VF[FFmpeg scene/keyframe sampling]
+        VV --> VF[Bounded FFmpeg keyframe sampling]
         VF --> VD[Vision descriptions]
         VV --> VA[Optional audio transcription]
         VD --> VT[Temporal segments]
@@ -172,7 +177,11 @@ flowchart TB
     RR --> CS[Context selection with provenance]
 ```
 
-Video processing samples scenes and representative frames rather than analyzing every frame. This controls provider usage and ingestion latency while preserving timestamped evidence.
+Phase 6 video processing samples representative frames at a configured interval and stops at
+`MAX_KEYFRAMES`; it never analyzes every frame. FFmpeg and ffprobe run as argument lists with
+`shell=False`, validated storage-root paths, timeouts, and checked return codes. Vision stops after
+the first provider failure and preserves a partial record. This controls provider usage and
+ingestion latency while preserving timestamped evidence.
 
 ## Upload Trust Boundaries
 
@@ -201,8 +210,28 @@ Local development may expose direct FastAPI upload endpoints. Production large b
 - `MetadataRepository` stores document/video/dataset metadata, ingestion state, provenance, durable chunk content, embedding vectors (or a lossless representation), embedding model/version, and index reconstruction metadata.
 - `ObjectStorageProvider` stores original and derived objects such as PDFs, videos, sampled frames, and approved transcript artifacts.
 - `VectorStore` provides semantic indexing and retrieval. In the portfolio topology it uses ChromaDB on ephemeral Render storage.
-- `LLMProvider` isolates Mistral and Mock text, structured, vision, and embedding operations. Phase 3
-  connects only routing and synthesis; provider-specific SDK types remain inside the adapter.
+- `LLMProvider` isolates Mistral and Mock text, structured, vision, and embedding operations. Phase 4
+  connects embeddings to PDF ingestion and document-query retrieval in addition to routing and
+  synthesis; provider-specific SDK types remain inside the adapter.
+
+Phase 4 provides `JsonDocumentRepository` and `ChromaDocumentVectorStore` adapters for local
+development, plus in-memory/ephemeral equivalents for tests. The JSON repository is authoritative
+for filenames, page numbers, chunk IDs, text, checksums, and embeddings. Chroma match IDs are always
+resolved through that repository before evidence can reach synthesis. Startup rebuilds an empty
+Chroma collection from stored embeddings without repeating provider calls.
+
+Phase 5 builds its small BM25 corpus from authoritative repository chunks per request; BM25 is not a
+second source of provenance. RRF and local reranking retain the same trusted `DocumentChunk` object
+through every stage. The normal API never serializes intermediate candidates. A diagnostic router is
+added to the FastAPI application only when `DEBUG=true`; with the default false value, its retrieval
+debug path is absent from both routing and OpenAPI.
+
+Phase 6 provides `JsonVideoRepository` and `ChromaVideoVectorStore` for local persistence, with
+in-memory/ephemeral equivalents in tests. The repository is authoritative for video names, segment
+IDs, timestamps, transcript/visual text, keyframe references, and embedding metadata. Chroma match
+IDs are resolved through that repository before timestamp evidence reaches synthesis. A typed
+`TranscriptionProvider` currently supplies disabled and deterministic Mock implementations; no paid
+transcription service is required.
 
 On AI-service startup, a reconstruction process compares durable index metadata with local Chroma state and rebuilds missing collections from stored embeddings. It must not call the embedding API for already embedded, version-compatible chunks.
 

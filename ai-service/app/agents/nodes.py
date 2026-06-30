@@ -1,15 +1,24 @@
 from app.models.domain import (
+    Citation,
+    DocumentCitation,
+    DocumentRetrievedContext,
     ErrorRecord,
     GuardrailDecision,
     GuardrailResult,
+    RetrievedContext,
     Route,
     ToolResult,
+    ToolStatus,
+    VideoCitation,
+    VideoRetrievedContext,
 )
 from app.models.state import SynapseState, SynapseStateUpdate
 from app.prompts.router import ROUTER_SYSTEM_PROMPT, build_router_user_prompt
 from app.prompts.synthesis import SYNTHESIS_SYSTEM_PROMPT, build_synthesis_user_prompt
 from app.providers.base import LLMProvider
 from app.schemas.inference import RouterClassification
+from app.services.document_rag import DocumentRetriever
+from app.services.video_rag import VideoRetriever
 from app.tools.placeholders import run_placeholder_tool
 
 BLOCKED_INPUT_PATTERNS = (
@@ -59,12 +68,130 @@ def _tool_node(state: SynapseState, expected_route: Route) -> SynapseStateUpdate
     }
 
 
-def document_search(state: SynapseState) -> SynapseStateUpdate:
-    return _tool_node(state, Route.DOCUMENT_SEARCH)
+def document_search(
+    state: SynapseState,
+    retriever: DocumentRetriever,
+    top_k: int,
+) -> SynapseStateUpdate:
+    if state["route"] != Route.DOCUMENT_SEARCH:
+        return {
+            "errors": [
+                ErrorRecord(
+                    code="ROUTE_MISMATCH",
+                    message="Expected document_search route.",
+                )
+            ],
+            "trace": ["tool.error=document_search"],
+        }
+
+    execution = retriever.search(state["user_query"], top_k=top_k)
+    contexts: list[RetrievedContext] = [
+        DocumentRetrievedContext(
+            context_id=result.chunk_id,
+            content=result.text,
+            document_id=result.document_id,
+            filename=result.filename,
+            page=result.page,
+            chunk_id=result.chunk_id,
+            similarity_score=result.similarity_score,
+        )
+        for result in execution.results
+    ]
+    citations: list[Citation] = [
+        DocumentCitation(
+            citation_id=f"citation_{result.chunk_id}",
+            document_id=result.document_id,
+            filename=result.filename,
+            page=result.page,
+            chunk_id=result.chunk_id,
+            locator=f"{result.filename}, page {result.page}",
+        )
+        for result in execution.results
+    ]
+    result_count = len(execution.results)
+    update: SynapseStateUpdate = {
+        "retrieved_context": contexts,
+        "citations": citations,
+        "tool_results": [
+            ToolResult(
+                tool=Route.DOCUMENT_SEARCH,
+                status=ToolStatus.COMPLETED,
+                summary=(
+                    f"Retrieved {result_count} provenance-validated document chunks."
+                    if result_count
+                    else "No indexed document evidence matched the query."
+                ),
+            )
+        ],
+        "trace": ["tool=document_search", f"retrieval.count={result_count}"],
+    }
+    if execution.inference_metadata is not None:
+        update["inference_metadata"] = [execution.inference_metadata]
+    return update
 
 
-def video_search(state: SynapseState) -> SynapseStateUpdate:
-    return _tool_node(state, Route.VIDEO_SEARCH)
+def video_search(
+    state: SynapseState,
+    retriever: VideoRetriever,
+    top_k: int,
+) -> SynapseStateUpdate:
+    if state["route"] != Route.VIDEO_SEARCH:
+        return {
+            "errors": [
+                ErrorRecord(
+                    code="ROUTE_MISMATCH",
+                    message="Expected video_search route.",
+                )
+            ],
+            "trace": ["tool.error=video_search"],
+        }
+
+    execution = retriever.search(state["user_query"], top_k=top_k)
+    contexts: list[RetrievedContext] = [
+        VideoRetrievedContext(
+            context_id=result.segment_id,
+            content=result.description,
+            video_id=result.video_id,
+            filename=result.filename,
+            segment_id=result.segment_id,
+            start_seconds=result.start_seconds,
+            end_seconds=result.end_seconds,
+            similarity_score=result.score,
+        )
+        for result in execution.results
+    ]
+    citations: list[Citation] = [
+        VideoCitation(
+            citation_id=f"citation_{result.segment_id}",
+            video_id=result.video_id,
+            filename=result.filename,
+            segment_id=result.segment_id,
+            start_seconds=result.start_seconds,
+            end_seconds=result.end_seconds,
+            locator=(f"{result.filename}, {result.start_seconds:.3f}s–{result.end_seconds:.3f}s"),
+        )
+        for result in execution.results
+    ]
+    result_count = len(execution.results)
+    update: SynapseStateUpdate = {
+        "retrieved_context": contexts,
+        "citations": citations,
+        "tool_results": [
+            ToolResult(
+                tool=Route.VIDEO_SEARCH,
+                status=ToolStatus.COMPLETED,
+                summary=(
+                    f"Retrieved {result_count} timestamped video segments."
+                    if result_count
+                    else "No indexed video evidence matched the query."
+                ),
+            )
+        ],
+        "trace": ["tool=video_search", f"retrieval.count={result_count}"],
+    }
+    if execution.inference_metadata is not None:
+        update["inference_metadata"] = [execution.inference_metadata]
+    return update
 
 
 def data_analytics(state: SynapseState) -> SynapseStateUpdate:
@@ -92,6 +219,8 @@ def synthesizer(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdat
             user_query=state["user_query"],
             route=route,
             tool_result=tool_result,
+            retrieved_context=state["retrieved_context"],
+            citations=state["citations"],
             rewrite_count=state["rewrite_count"],
         ),
     )

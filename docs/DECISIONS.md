@@ -18,6 +18,8 @@ This is a lightweight architecture decision record (ADR) log. New architecture-c
 | ADR-010 | Independent Phase 1 workspaces and application factories | Accepted | 2026-06-15 |
 | ADR-011 | Deterministic Phase 2 graph with bounded rewrites | Accepted | 2026-06-19 |
 | ADR-012 | Provider-backed inference with explicit retry ownership | Accepted | 2026-06-24 |
+| ADR-013 | Provenance-first local PDF RAG with reconstructable vectors | Accepted | 2026-06-26 |
+| ADR-014 | Rank-fused local hybrid retrieval with debug-gated diagnostics | Accepted | 2026-06-28 |
 
 ## ADR-001 — AI-First Monorepo with Strict Service Boundaries
 
@@ -129,8 +131,76 @@ quota changes. A model-backed Sentinel was rejected because it is outside Phase 
 existing deterministic termination invariant.  
 **Consequences:** Provider selection is testable and Mock mode starts without credentials or network
 access. The adapter has additional normalization code, and live Mistral behavior requires a user
-supplied API key and available quota. Vision and embedding methods exist but remain disconnected
-until retrieval phases are authorized.
+supplied API key and available quota. Phase 4 subsequently connected embeddings to document
+ingestion and retrieval; vision remains disconnected until a video phase is authorized.
+
+## ADR-013 — Provenance-First Local PDF RAG with Reconstructable Vectors
+
+**Status:** Accepted  
+**Context:** Phase 4 needs useful local PDF retrieval and citation provenance without introducing the
+planned hosted metadata/object stores, expensive OCR, or later hybrid-ranking features. Chroma is an
+index and must not become the authority for user-visible filenames or page locations.  
+**Decision:** Validate and parse PDFs with PyMuPDF, retain page boundaries, and chunk by headings,
+paragraphs, and sentences before applying bounded overlap. Persist document records, complete chunk
+metadata, and embeddings through a typed repository; index caller-supplied vectors through a typed
+Chroma adapter. Resolve every vector match back through the repository before constructing evidence
+or citations. Use a JSON repository and persistent Chroma client locally, in-memory/ephemeral
+adapters in tests, and rebuild a missing index from persisted embeddings at startup. Mark low/no-text
+PDFs `ocr_required=true` without invoking OCR. Implement dense search only in this phase.  
+**Alternatives:** Chroma-only metadata was rejected because it weakens provenance authority and
+reconstruction. Fixed-character chunking was rejected because it ignores document structure.
+Automatic OCR and BM25/RRF/reranking were rejected as explicit future-phase scope.  
+**Consequences:** Local ingestion, retrieval, deletion, and graph citations are deterministic and
+network-free in Mock mode. The JSON adapter is single-process development storage rather than a
+transactional production database, original binaries are not retained, and hybrid relevance work
+remains deferred.
+
+## ADR-014 — Rank-Fused Local Hybrid Retrieval with Debug-Gated Diagnostics
+
+**Status:** Accepted  
+**Context:** Dense retrieval can recover semantic similarity but may miss rare exact identifiers;
+lexical retrieval has the opposite tradeoff. Phase 5 must improve candidate coverage without paid
+reranking APIs, network-dependent tests, incomparable-score arithmetic, or provenance drift.  
+**Decision:** Normalize/rewrite queries deterministically, retrieve independent Chroma cosine and
+`rank-bm25` lists, combine ranks with RRF (`k=60`), rerank the fused pool with a deterministic
+CPU-only term/identifier/phrase coverage scorer, and select a bounded de-duplicated final context.
+Carry authoritative `DocumentChunk` records through every stage. Support explicit `vector_only` and
+`hybrid` evaluation modes with Recall@K and MRR. Register the stage-debug HTTP router only when
+`DEBUG=true`; never add stage data to normal search/chat responses.  
+**Alternatives:** Adding cosine and BM25 scores directly was rejected because their scales are not
+comparable. FlashRank was considered but rejected for this phase because even a small cross-encoder
+adds model artifact/download management and weakens offline reproducibility. Paid Cohere, Voyage,
+Pinecone, and similar APIs were rejected by the free/local constraint.  
+**Consequences:** Exact and semantic candidate paths complement each other, evaluation can compare
+them honestly, and CI remains network-free after installation. BM25 is rebuilt per request and the
+local reranker is a relevance heuristic rather than a learned cross-encoder; larger corpora will
+need indexing/caching and broader evaluation before production claims.
+
+## ADR-015 — Bounded Temporal Video RAG with Degradable Enrichment
+
+**Status:** Accepted  
+**Context:** Phase 6 needs useful timestamp retrieval for small portfolio MP4s without every-frame
+analysis, mandatory paid transcription, uncontrolled vision spend, unsafe media subprocesses, or
+model-authored timestamps. Local metadata must remain authoritative even when Chroma returns a
+candidate or vision enrichment is temporarily unavailable.  
+**Decision:** Validate bounded MP4 uploads, inspect streams through ffprobe, and sample at a
+configurable interval up to `MAX_KEYFRAMES`. Invoke FFmpeg through explicit argument lists with
+`shell=False`, generated in-root paths, timeouts, return-code checks, and output validation. Align
+optional transcript spans and optional vision descriptions into typed temporal segments, persist
+their metadata and embeddings through repository interfaces, and index a separate Chroma
+collection. Resolve matches through the authoritative repository before exposing timestamps or
+constructing graph citations. Stop vision enrichment after its first failure and persist the video
+as `partial`; use disabled and deterministic Mock transcription providers so no paid service is
+mandatory.  
+**Alternatives:** Every-frame analysis was rejected for latency and provider cost. Content-aware
+scene detection was deferred because interval sampling is more predictable for the bounded demo and
+does not require decoding the entire video. Shell command construction was rejected due to path and
+argument-injection risk. A mandatory cloud speech-to-text provider and model-generated timestamps
+were rejected by the free/offline and provenance requirements.  
+**Consequences:** Local ingestion has explicit cost ceilings, automated tests need neither FFmpeg
+nor network access, and timestamp citations remain traceable. Real ingestion requires local FFmpeg
+and ffprobe. Interval sampling can miss brief events between selected frames, Mock transcription is
+not real speech recognition, and the JSON/artifact storage is a single-process development design.
 
 ## ADR Template
 

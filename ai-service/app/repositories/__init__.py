@@ -1,0 +1,1 @@
+"""Durable metadata repository boundaries."""

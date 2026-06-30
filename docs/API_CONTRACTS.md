@@ -3,9 +3,11 @@
 ## Status and Conventions
 
 Unless marked as implemented, contracts in this document are **planned, versioned design contracts**.
-Phase 3 implements the unversioned process-liveness endpoint `GET /health` on both backends,
-`POST /api/v1/chat/invoke`, and `GET /api/v1/system/ai-provider` on the AI service. Exact future routes may evolve through recorded
-architecture decisions before implementation.
+Through Phase 6, the repository implements `GET /health` on both backends and the AI-service chat,
+provider-status, local document CRUD, hybrid document search, local video upload/list, semantic
+video search, and debug-gated document retrieval endpoints
+described below. Exact
+future routes may evolve through recorded architecture decisions before implementation.
 
 - External base path: `/api/v1`
 - Content type: `application/json` unless noted
@@ -104,7 +106,134 @@ Starts ingestion from an authorized stored object reference.
 }
 ```
 
-The AI service verifies that the object reference is authorized and matches expected ownership, type, size, and checksum. Local-development direct upload endpoints, if later added, belong to FastAPI and must be disabled or constrained in production.
+The future object-ingestion API will verify that the object reference is authorized and matches
+expected ownership, type, size, and checksum. The Phase 4 local-development upload route belongs to
+FastAPI and is disabled in production mode.
+
+### `POST /api/v1/documents` — Implemented in Phase 4 for local development
+
+Accepts one bounded `multipart/form-data` field named `file`. The file must have a `.pdf` extension,
+an `application/pdf` media type, a PDF signature, and a readable, unencrypted structure within the
+configured size/page limits. The endpoint returns HTTP 201 with trusted document metadata:
+
+```json
+{
+  "document_id": "opaque_uuid",
+  "filename": "synapse-policy.pdf",
+  "page_count": 3,
+  "chunk_count": 3,
+  "checksum": "sha256_hex",
+  "created_at": "2026-07-02T00:00:00Z",
+  "ocr_required": false
+}
+```
+
+Low/no-text PDFs return a successful record with `ocr_required=true` and `chunk_count=0`; OCR is not
+started. Direct upload is disabled with HTTP 403 when `APP_ENV=production`.
+
+### `GET /api/v1/documents` — Implemented in Phase 4
+
+Returns `{"documents": [...]}` using the document metadata shape above. Embeddings, chunk text,
+storage paths, and credentials are not exposed.
+
+### `DELETE /api/v1/documents/{document_id}` — Implemented in Phase 4
+
+Deletes the document's authoritative metadata, durable chunks/embeddings, and Chroma entries. It
+returns HTTP 204 or a safe HTTP 404 when the identifier does not exist.
+
+### `POST /api/v1/search/documents` — Hybrid retrieval in Phase 5
+
+Performs query normalization, vector retrieval, BM25 retrieval, RRF, local CPU reranking, and bounded
+context selection. `top_k` is optional (1–20), and results are capped by the configured final-context limit;
+`document_ids` is an optional unique filter of at most 50 identifiers.
+
+```json
+{
+  "query": "What is the refund policy?",
+  "top_k": 3,
+  "document_ids": ["opaque_uuid"]
+}
+```
+
+```json
+{
+  "results": [
+    {
+      "text": "Bounded source text.",
+      "document_id": "opaque_uuid",
+      "filename": "synapse-policy.pdf",
+      "page": 2,
+      "chunk_id": "opaque_chunk_id",
+      "similarity_score": 0.82
+    }
+  ],
+  "inference_metadata": {
+    "provider": "mock",
+    "operation": "embed",
+    "model": "mock-embedding-v1",
+    "latency_ms": 0,
+    "retry_count": 0,
+    "token_usage": null
+  }
+}
+```
+
+All provenance fields are resolved from authoritative stored chunks, never accepted from model
+output. The backward-compatible `similarity_score` field contains the bounded final relevance score
+after Phase 5 selection; intermediate vector, BM25, RRF, and rerank scores are not exposed here.
+
+### `POST /api/v1/debug/retrieval/documents` — Registered only with `DEBUG=true`
+
+Accepts the document-search fields plus `mode: "vector_only" | "hybrid"`. Its response contains the
+normalized query, mode, safe embedding metadata, and ranked `vector_candidates`, `bm25_candidates`,
+`fused_candidates`, `reranked_candidates`, and `final_context`. Candidate records expose trusted
+evidence identifiers, filename/page/chunk index, text, stage score, and rank; they never expose
+embeddings, prompts, credentials, or private reasoning.
+
+When `DEBUG=false` (the default), this route is not registered, returns HTTP 404, and does not appear
+in OpenAPI. The regular search and chat responses never gain retrieval-debug fields.
+
+### `POST /api/v1/videos` — Implemented in Phase 6 for local development
+
+Accepts one bounded `multipart/form-data` field named `file`. The file must use `.mp4`, declare
+`video/mp4` or `application/mp4`, contain an MP4 signature, and satisfy configured byte/duration
+limits. Successful HTTP 201 responses include trusted video metadata, segment count, and
+`ready|partial` processing state plus `completed|disabled|unavailable` visual/transcription states.
+Direct upload returns HTTP 403 in production mode.
+
+### `GET /api/v1/videos` — Implemented in Phase 6
+
+Returns `{"videos": [...]}` with video metadata and processing/enrichment state. It never returns
+binary content, embedding vectors, credentials, absolute artifact paths, or provider payloads.
+
+### `POST /api/v1/search/videos` — Implemented in Phase 6
+
+Accepts `{"query": "...", "top_k": 3}` and performs semantic retrieval over temporal segments.
+Each result contains only repository-resolved provenance:
+
+```json
+{
+  "results": [
+    {
+      "video_id": "video_opaque",
+      "filename": "portfolio.mp4",
+      "segment_id": "segment_opaque",
+      "start_seconds": 30.0,
+      "end_seconds": 60.0,
+      "description": "Bounded transcript and visual evidence.",
+      "score": 0.82
+    }
+  ],
+  "inference_metadata": {
+    "provider": "mock",
+    "operation": "embed",
+    "model": "mock-embedding-v1",
+    "latency_ms": 0,
+    "retry_count": 0,
+    "token_usage": null
+  }
+}
+```
 
 ### `GET /api/v1/ingestions/{ingestion_id}`
 
@@ -120,21 +249,26 @@ Returns trusted display metadata, modality, ingestion status, version/checksum m
 
 ## Chat and Streaming
 
-### `POST /api/v1/chat/invoke` — Implemented in Phase 2, provider-backed in Phase 3
+### `POST /api/v1/chat/invoke` — Document and video retrieval through Phase 6
 
 Synchronously invokes the LangGraph workflow. `thread_id` is propagated for correlation only;
-Phase 3 has no checkpointer, memory, retrieval, or database.
+Phase 6 still has no checkpointer or conversation memory. Document-routed queries use hybrid
+retrieval; video-routed queries use the semantic temporal-segment retriever.
 
 ```json
 {
-  "message": "Summarize page 4 of the PDF document",
+  "message": "Find the refund policy in my documents.",
   "thread_id": "thread_opaque"
 }
 ```
 
-The safe response includes `request_id`, `thread_id`, `intent`, `route`, `final_response`, empty
-citation/Gen-UI arrays, `guardrail_result`, public errors, safe trace events, safe inference metadata,
-and a bounded `rewrite_count`. It excludes `user_query`, `draft_response`, retrieved context, tool
+The safe response includes `request_id`, `thread_id`, `intent`, `route`, `final_response`, a
+document or video citation array when evidence is retrieved, an empty Gen-UI array,
+`guardrail_result`, public
+errors, safe trace events, safe inference metadata, and a bounded `rewrite_count`. Each document
+citation uses the retrieved `document_id`, `filename`, `page`, and `chunk_id`; the model cannot supply
+those fields. Video citations analogously use trusted `video_id`, filename, `segment_id`, and
+start/end seconds. The response excludes `user_query`, `draft_response`, retrieved context, tool
 internals, prompts, credentials, and private reasoning.
 
 `message` is trimmed and limited to 4,000 characters. `thread_id` is trimmed, limited to 128

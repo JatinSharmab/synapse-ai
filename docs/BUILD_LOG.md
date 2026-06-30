@@ -202,3 +202,238 @@ This log records completed project phases. Entries describe work actually perfor
 - Real analytics execution, production citations, Gen-UI, semantic Sentinel checks, evaluation, SSE,
   and deployment
 - Live Mistral verification, which requires a user-provided API key, network access, and quota
+
+## Phase 4 — Citation-Grounded PDF Ingestion and Document RAG
+
+**Date:** 2026-06-26  
+**Status:** Complete
+
+### Delivered
+
+- Added strict local PDF validation for filename extension, `application/pdf` media type, PDF
+  signature, upload size, readability, encryption state, and page count.
+- Added page-aware PyMuPDF extraction, whitespace/hyphen normalization, and removal of repeated short
+  page-edge boilerplate while preserving page boundaries.
+- Added semantic-aware chunking that prefers heading, paragraph, and sentence boundaries before a
+  word-boundary fallback for oversized sentences. Maximum, minimum, and overlap token estimates are
+  configurable; chunks never span pages.
+- Added typed document, chunk, stored-vector, and retrieval models. Every chunk records trusted
+  document ID, filename, page number, chunk ID/index, text, token estimate, checksum, and UTC creation
+  time.
+- Added a typed metadata-repository abstraction with in-memory and atomic JSON snapshot adapters.
+- Added a typed vector-store abstraction and ChromaDB adapter using caller-supplied embeddings,
+  cosine distance, local persistence, explicit provenance metadata, and no Chroma embedding function.
+- Added index reconstruction from persisted vectors without repeating embedding-provider calls.
+- Added the local-development document upload/list/delete APIs and dense document-search API.
+  Production-mode direct upload is explicitly disabled.
+- Added `ocr_required=true` handling for PDFs with little/no extractable text; no OCR provider is
+  invoked automatically.
+- Connected the LangGraph Document Search node to the real retriever and supplied bounded retrieved
+  context to Synthesizer. Citations are constructed deterministically from authoritative retrieval
+  metadata, never model-authored location fields.
+- Connected `LLMProvider.embed()` to chunk indexing and query embedding. Tests remain deterministic
+  and network-free through a normalized hashed-token Mock embedding.
+- Added a generated three-page synthetic PDF with known page-specific facts, plus a transparent
+  regeneration script.
+- Added Phase 4 environment settings, dependencies, API/architecture documentation, and ADR-013.
+
+### Verification
+
+- Valid PDF upload returns trusted metadata and persists page-aware chunks.
+- Corrupt PDFs, wrong extensions/media types, and non-PDF data masquerading as PDF are rejected.
+- Low/no-text PDFs return `ocr_required=true` with no chunks and no automatic OCR.
+- Chunk tests verify semantic boundaries, configured bounds, overlap, required metadata, checksums,
+  stable global indexes, and page provenance.
+- Dense retrieval deterministically returns the fixture's refund policy from page 2 with its actual
+  document ID, filename, chunk ID, and similarity score.
+- A document-routed graph invocation terminates with the retrieved answer and the same trusted page-2
+  citation metadata.
+- Deletion removes both the document listing and its searchable vector entries.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 59 files.
+- Strict `mypy` passed across 58 application and test source files.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 24 AI-service tests.
+- Root npm lint and TypeScript typechecks passed.
+- The gateway health smoke test passed (1 test), and frontend/gateway production builds passed.
+
+### Resolved During Verification
+
+- The first expanded test run exposed `zip(..., strict=True)` on adjacent chunk pairs, which must
+  differ in length by one. It was corrected to `strict=False`; the full suite then passed.
+- The first Mock embedding ranked an unrelated page for a graph query. Stopword filtering and a
+  larger deterministic hashed-token vector improved the offline semantic proxy; retrieval now
+  selects the known page-2 policy fixture reproducibly.
+- Chroma's SQLite persistence could not create files under the workspace in this sandbox. Safe local
+  defaults were moved under the operating-system temporary directory and remain fully configurable
+  with `DOCUMENT_METADATA_PATH` and `CHROMA_PERSIST_PATH`.
+- NumPy 2.5's installed type stubs use Python 3.12 type-alias syntax while this project typechecks a
+  Python 3.11 floor. Mypy skips only third-party Chroma/NumPy implementation imports; all Synapse
+  application and test sources remain strict.
+- The final fixture-generator lint initially reported three overlong strings and one formatting
+  difference. The source was reformatted, and both final Ruff checks passed.
+- A two-run fixture hash check found that PyMuPDF regenerated internal file identifiers. Reproducible
+  save mode and `no_new_id` were enabled so repeated generation produces the same PDF hash.
+- Chroma emits one upstream Python 3.14 deprecation warning for `asyncio.iscoroutinefunction`; it was
+  reported and not suppressed.
+- Git status/diff inspection remained unavailable because Git rejected the workspace ownership as
+  unsafe. No global Git configuration was changed to bypass that safety check.
+
+### Deferred by Design
+
+- OCR execution and OCR-provider integration
+- BM25, Reciprocal Rank Fusion, and reranking
+- Video ingestion/retrieval and deterministic CSV analytics execution
+- MongoDB, Supabase object storage, authentication, persistent thread memory, and production upload
+  orchestration
+- Original PDF binary persistence, distributed transactions, and multi-process concurrency for the
+  local JSON metadata adapter
+- Gen-UI, semantic Sentinel checks, evaluations, streaming, and deployment
+- Live Mistral retrieval verification, which requires a user-provided API key, network access, and
+  quota
+
+## Phase 5 — Hybrid Document Retrieval and Offline Evaluation
+
+**Date:** 2026-06-28  
+**Status:** Complete
+
+### Delivered
+
+- Added deterministic Unicode/whitespace query normalization and bounded removal of request/source
+  scaffolding before retrieval. Query rewriting uses no LLM call.
+- Retained Chroma cosine retrieval and added Apache-licensed `rank-bm25` 0.2.2 lexical retrieval over
+  authoritative stored chunks with shared query/corpus preprocessing.
+- Added deterministic Reciprocal Rank Fusion with `k=60`, combining ranks rather than incomparable
+  vector and BM25 score scales.
+- Added a CPU-only local reranker using query-term coverage, exact identifier coverage, phrase
+  presence, and normalized RRF position. No paid API or runtime model download is used.
+- Added bounded context selection that de-duplicates chunk IDs and requires complete trusted
+  document/page provenance before synthesis.
+- Added typed internal retrieval-stage records for `vector_candidates`, `bm25_candidates`,
+  `fused_candidates`, `reranked_candidates`, and `final_context`.
+- Added `POST /api/v1/debug/retrieval/documents`, conditionally registered only with `DEBUG=true`.
+  With the default false value it returns 404, is absent from OpenAPI, and regular search/chat
+  responses do not expose debug state.
+- Added typed `VECTOR_TOP_K`, `BM25_TOP_K`, `RERANK_TOP_K`, and `FINAL_CONTEXT_K` settings with safe
+  bounds and final-context/rerank consistency validation.
+- Added explicit `vector_only` and `hybrid` search modes for evaluation while keeping hybrid as the
+  normal document-search and LangGraph path.
+- Added the versioned `document-retrieval.v1.json` dataset with query, relevant filename, page, and
+  global chunk index labels.
+- Added offline Recall@K and Mean Reciprocal Rank evaluation support plus a runnable comparison CLI.
+- Updated the AI design, system architecture, API contracts, README, sample-data guide, and ADR-014.
+
+### Verification
+
+- BM25 tests prove an exact `ORION-30` identifier ranks above generic refund content.
+- RRF tests prove a candidate appearing in both ranked lists outranks single-list candidates.
+- Reranking tests prove exact identifier coverage can promote a lower-fused candidate.
+- Debug-route tests prove the endpoint and OpenAPI path are absent when disabled and all five stages
+  are returned when enabled.
+- Public search tests prove retrieval-debug fields do not leak into normal responses.
+- The versioned evaluation dataset loads and runs both retrieval modes against trusted chunk labels.
+- Final offline evaluation at K=3: vector-only Recall@3 `1.0`, MRR `1.0`; hybrid Recall@3 `1.0`, MRR
+  `1.0`. The small exact-match fixture does not demonstrate a metric delta, and no gain is claimed.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 72 files.
+- Strict mypy passed across 71 application and test source files.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 30 AI-service tests.
+- Root npm lint and TypeScript typechecks passed.
+- The gateway health smoke test passed (1 test), and frontend/gateway production builds passed.
+
+### Resolved During Verification
+
+- The first dependency install was blocked from reaching PyPI inside the sandbox. It was rerun with
+  explicit network permission and installed only the declared free `rank-bm25` package.
+- The host environment defines `DEBUG=release`, which initially caused Pydantic collection errors.
+  Debug parsing now fails closed: only explicit `1`, `true`, `yes`, or `on` values enable the route.
+- The first Ruff check found three overlong lines and six formatting differences. Ruff could not
+  write formatter changes in the sandbox, so the exact formatting fixes were applied explicitly;
+  final lint and format checks passed.
+- Chroma continues to emit one upstream Python 3.14 deprecation warning for
+  `asyncio.iscoroutinefunction`; it remains visible and unsuppressed.
+
+### Deferred by Design
+
+- Learned cross-encoder/FlashRank reranking and local model artifact management
+- Persistent/cached BM25 indexes for corpora beyond the current portfolio-scale local repository
+- Larger and adversarial retrieval evaluation datasets capable of measuring statistically useful
+  vector-versus-hybrid differences
+- OCR execution, video retrieval, analytics execution, authentication, hosted metadata/object
+  storage, thread memory, Gen-UI, streaming, and deployment
+- Live Mistral evaluation, which requires a user-provided API key, network access, and quota
+
+## Phase 6 — Multimodal Video Ingestion and Semantic Retrieval
+
+**Date:** 2026-06-30  
+**Status:** Complete
+
+### Delivered
+
+- Added strict MP4 filename/media-type/signature/size validation plus trusted ffprobe stream,
+  duration, dimensions, audio-presence, and container validation.
+- Added safe FFmpeg/ffprobe execution using generated storage paths, explicit argument lists,
+  `shell=False`, subprocess timeouts, return-code checks, and derived-output validation.
+- Added bounded interval-based representative keyframe selection controlled by
+  `MAX_VIDEO_SIZE_MB`, `MAX_VIDEO_DURATION_SECONDS`, `MAX_KEYFRAMES`, and
+  `KEYFRAME_INTERVAL_SECONDS`. The implementation does not analyze every frame.
+- Connected optional `LLMProvider.describe_image()` enrichment with at most one call per selected
+  keyframe. The first vision failure stops additional vision calls and yields a persisted partial
+  video instead of aborting ingestion.
+- Added a typed `TranscriptionProvider` boundary with disabled and deterministic offline Mock
+  providers. Optional mono 16 kHz PCM extraction occurs only when transcription is enabled and an
+  audio stream exists; no paid transcription dependency is required.
+- Added typed video records and temporal segments carrying video/segment IDs, trusted filename,
+  start/end seconds, transcript, visual description, combined text, relative keyframe reference,
+  and safe embedding metadata.
+- Added authoritative in-memory/atomic-JSON video repositories and a separate Chroma video-segment
+  collection with index reconstruction from persisted embeddings.
+- Added local-development `POST /api/v1/videos`, `GET /api/v1/videos`, and
+  `POST /api/v1/search/videos` endpoints. Production direct upload is disabled.
+- Connected LangGraph `video_search` to the real temporal retriever. Video contexts and citations
+  now use repository-resolved IDs, filenames, segment IDs, and timestamp ranges; Mock synthesis
+  consumes retrieved evidence without fabricating provenance.
+- Added Phase 6 typed settings/environment examples, documentation, API contracts, and ADR-015.
+
+### Verification
+
+- Valid synthetic MP4-shaped test uploads use exactly three representative timestamps under the
+  configured cap and produce three aligned segments.
+- Segment tests verify timestamp boundaries, trusted filename/video identifiers, keyframe
+  references, and embedding metadata.
+- Semantic search and graph tests resolve search results/citations back to authoritative temporal
+  records.
+- Vision-unavailable tests prove ingestion returns `partial`, transcription still completes, and
+  no vision calls occur after the first failure.
+- Validation tests reject non-MP4 data masquerading as MP4 and wrong extension/media types.
+- Subprocess tests prove ffprobe receives an argument list, `shell=False`, a configured timeout, and
+  rejects paths outside the video storage root.
+- All Phase 6 tests use `MockProvider`, Mock transcription, and fake media processing; no test calls
+  live Mistral, a paid transcription API, FFmpeg, or the internet.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 87 files.
+- Strict mypy passed across 86 application and test source files.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 38 AI-service tests.
+- Root npm lint and TypeScript typechecks passed.
+- The gateway health smoke test passed (1 test), and frontend/gateway production builds passed.
+
+### Resolved During Verification
+
+- The workspace denies tool-created Ruff/Pytest cache directories, so checks use `--no-cache` and
+  final tests use `-p no:cacheprovider`; failures remain visible.
+- Ruff's formatter could inspect but not write workspace files under the sandbox. Its exact
+  suggested formatting changes were applied explicitly and then rechecked.
+- The first final mypy run found one missing return annotation on a test-only FastAPI factory. The
+  annotation was added, and the second strict run passed all 86 checked source files.
+- FFmpeg and ffprobe are not installed on the verification machine. The real subprocess adapter was
+  validated with controlled subprocess tests, but end-to-end decoding of a real MP4 remains a
+  required manual verification after installation.
+- Git status/diff inspection remains unavailable because Git rejects the workspace ownership as
+  unsafe. No global Git safety configuration was changed.
+
+### Deferred by Design
+
+- Content-aware scene detection and learned visual shot selection
+- A live speech-to-text provider and production transcription queue
+- Video hybrid lexical retrieval, temporal reranking, OCR, and broader multimodal evaluation
+- Production object storage/signed uploads, distributed jobs, deletion API, and artifact lifecycle
+- Analytics execution, authentication, persistent threads, Gen-UI, streaming, and deployment

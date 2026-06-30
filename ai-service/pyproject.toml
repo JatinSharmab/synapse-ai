@@ -4,16 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "synapse-ai-service"
-version = "0.3.0"
+version = "0.6.0"
 description = "AI service foundation for Synapse"
 requires-python = ">=3.11"
 dependencies = [
+  "chromadb>=1.5.9,<2",
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
   "langgraph>=1.2.11,<2",
   "mistralai>=2.9.4,<3",
+  "pymupdf>=1.28.2,<2",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
+  "python-multipart>=0.0.20,<1",
+  "rank-bm25>=0.2.2,<0.3",
   "typing-extensions>=4.12,<5",
   "uvicorn[standard]>=0.34,<1",
 ]
@@ -37,6 +41,16 @@ testpaths = ["tests"]
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
+follow_imports_for_stubs = true
+
+[[tool.mypy.overrides]]
+module = ["chromadb", "chromadb.*", "numpy", "numpy.*"]
+follow_imports = "skip"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["rank_bm25", "rank_bm25.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
