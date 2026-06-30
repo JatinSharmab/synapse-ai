@@ -24,6 +24,7 @@ class Route(StrEnum):
 
 class ToolStatus(StrEnum):
     COMPLETED = "completed"
+    FAILED = "failed"
     NOT_IMPLEMENTED = "not_implemented"
 
 
