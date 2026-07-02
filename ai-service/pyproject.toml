@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "synapse-ai-service"
-version = "0.6.0"
+version = "0.7.0"
 description = "AI service foundation for Synapse"
 requires-python = ">=3.11"
 dependencies = [

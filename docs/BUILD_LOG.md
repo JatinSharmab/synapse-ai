@@ -437,3 +437,78 @@ This log records completed project phases. Entries describe work actually perfor
 - Video hybrid lexical retrieval, temporal reranking, OCR, and broader multimodal evaluation
 - Production object storage/signed uploads, distributed jobs, deletion API, and artifact lifecycle
 - Analytics execution, authentication, persistent threads, Gen-UI, streaming, and deployment
+
+## Phase 7 — Safe Deterministic CSV Analytics
+
+**Date:** 2026-07-02  
+**Status:** Complete
+
+### Delivered
+
+- Added bounded local UTF-8 CSV ingestion with extension/media-type checks, unique non-empty
+  headers, consistent row width, byte/row/column limits, and deterministic string/number/boolean
+  type inference.
+- Added typed dataset metadata and an authoritative repository boundary with in-memory test and
+  atomic JSON local-development adapters.
+- Added a Pydantic-discriminated analytics operation union for `describe`, `count`, `sum`, `mean`,
+  `min`, `max`, `group_by`, `sort`, `top_n`, and multi-`aggregation`.
+- Added strict validation for dataset ID, column existence, numeric aggregation fields, grouping
+  fields, aggregation requirements, sort directions, aliases, and configured result-row limits.
+- Added a closed deterministic executor using fixed application methods and Decimal arithmetic.
+  There is no Python shell, SQL engine, expression field, dynamic import, `eval`, `exec`, or
+  `compile` execution path.
+- Added deterministic result structures containing `summary`, `columns`, `result_rows`,
+  `statistics`, and `recommended_visualization`.
+- Added schema-constrained provider planning through `AnalyticsPlan`; Mock planning is deterministic
+  and offline. Plans are revalidated against authoritative repository metadata before execution.
+- Connected LangGraph `data_analytics` to the real tool. The executor's deterministic numeric
+  summary is used directly as the graph draft, so provider text generation cannot recalculate or
+  alter source-of-truth numbers.
+- Added local-development dataset upload/list/delete and typed analytics-execute APIs. Production
+  direct CSV upload is disabled.
+- Added the known-value `sample-data/datasets/regional-revenue.csv` fixture.
+- Added Phase 7 settings/environment variables, API/design/architecture documentation, and ADR-016.
+
+### Verification
+
+- CSV tests verify typed schema inference, listing, malformed width/header rejection, extension and
+  media-type validation, deletion, and absence of partial persistence on invalid uploads.
+- Scalar operation tests verify deterministic count, sum, mean, min, and max values.
+- Describe, group-by, sort, top-N, and multi-aggregation tests verify exact known fixture results.
+- Validation tests reject unknown columns, non-numeric aggregation fields, missing aggregation
+  fields, excessive limits, unknown operation discriminators, and code-like payloads.
+- A static AST guard verifies the analytics implementation contains no calls to `eval`, `exec`, or
+  `compile`; a direct source scan also found none.
+- LangGraph tests prove analytics routing, structured plan generation, deterministic numeric output,
+  safe traces, and the absence of provider text synthesis on the analytics route.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 101 files.
+- Strict mypy passed across 100 application and test source files.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 54 AI-service tests.
+- Root npm lint and TypeScript typechecks passed.
+- The gateway health smoke test passed (1 test), and frontend/gateway production builds passed.
+
+### Resolved During Verification
+
+- The first focused graph analytics test exposed a planner limit of 100 while the test runtime cap
+  was 20. The configured cap is now included in the structured planning prompt, Mock planning obeys
+  it, and the executor independently revalidates it.
+- The first full formatting check reported three formatting-only differences. Exact formatter
+  suggestions were applied explicitly; the final check passed all 101 files.
+- The first complete monorepo verification attempt was interrupted by a user continuation message.
+  All Python and npm quality commands were rerun to completion; the final results above are from the
+  completed reruns.
+- Frontend production transformation was unusually slow in the verification environment but
+  completed successfully in 2 minutes 16 seconds.
+- Chroma continues to emit one upstream Python deprecation warning for
+  `asyncio.iscoroutinefunction`; it remains visible and unsuppressed.
+- Git status/diff inspection remains unavailable because Git rejects the workspace ownership as
+  unsafe. No global Git safety configuration was changed.
+
+### Deferred by Design
+
+- Row filtering, joins, pivots, derived formulas, date/time semantics, and time-series operations
+- Large-file streaming, columnar execution, production data warehouses, and distributed jobs
+- LLM-written narrative summaries for analytics; Phase 7 returns the deterministic tool summary
+- Production object storage/signed uploads, authentication, persistent threads, Gen-UI, streaming,
+  and deployment

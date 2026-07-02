@@ -14,6 +14,7 @@ from app.graph.routing import route_after_router, route_after_sentinel
 from app.models.domain import Route
 from app.models.state import SynapseState
 from app.providers.base import LLMProvider
+from app.services.analytics_service import AnalyticsTool
 from app.services.document_rag import DocumentRetriever
 from app.services.video_rag import VideoRetriever
 
@@ -24,6 +25,7 @@ def build_synapse_graph(
     document_context_top_k: int,
     video_retriever: VideoRetriever,
     video_context_top_k: int,
+    analytics: AnalyticsTool,
 ) -> CompiledStateGraph[SynapseState, None, SynapseState, SynapseState]:
     builder = StateGraph(SynapseState)
 
@@ -40,7 +42,10 @@ def build_synapse_graph(
         Route.VIDEO_SEARCH.value,
         lambda state: video_search(state, video_retriever, video_context_top_k),
     )
-    builder.add_node(Route.DATA_ANALYTICS.value, data_analytics)
+    builder.add_node(
+        Route.DATA_ANALYTICS.value,
+        lambda state: data_analytics(state, analytics),
+    )
     builder.add_node(Route.DIRECT_ANSWER.value, direct_answer)
     builder.add_node("synthesizer", lambda state: synthesizer(state, provider))
     builder.add_node("sentinel", sentinel)

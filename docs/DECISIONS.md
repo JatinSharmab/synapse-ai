@@ -202,6 +202,34 @@ nor network access, and timestamp citations remain traceable. Real ingestion req
 and ffprobe. Interval sampling can miss brief events between selected frames, Mock transcription is
 not real speech recognition, and the JSON/artifact storage is a single-process development design.
 
+## ADR-016 — Closed Typed Analytics Plans with Deterministic Numeric Authority
+
+**Status:** Accepted  
+**Context:** Phase 7 must answer natural-language questions over CSV data without allowing a model
+to generate executable Python, SQL, shell commands, or general expressions. Column names,
+aggregation fields, grouping fields, and output size are untrusted until resolved against the
+uploaded dataset; generated numeric prose cannot be the source of truth.  
+**Decision:** Parse bounded UTF-8 CSVs into authoritative raw rows plus an inferred
+string/number/boolean schema. Expose a discriminated Pydantic operation union for `describe`,
+`count`, `sum`, `mean`, `min`, `max`, `group_by`, `sort`, `top_n`, and multi-`aggregation`. Permit
+the provider to return only an `AnalyticsPlan` containing a known dataset ID and one union member.
+Revalidate every referenced column, numeric type, aggregation requirement, sort direction, alias,
+and result limit against the repository. Dispatch to fixed executor methods and calculate through
+`Decimal`; never expose a code/expression field, interpreter, SQL engine, dynamic import, `eval`, or
+`exec`. Use the executor's deterministic summary directly for the graph draft rather than asking
+the LLM to recalculate it.  
+**Alternatives:** Model-generated Python and sandboxed notebooks were rejected because a sandbox is
+not an authorization model and greatly expands the attack surface. Model-generated SQL was rejected
+because Phase 7 has no database/query-policy boundary and arbitrary SQL is outside the allowed
+operation set. Pandas query/eval strings and a general expression grammar were rejected because the
+fixed portfolio operations need neither. LLM-authored final numbers were rejected because they
+cannot be treated as deterministic evidence.  
+**Consequences:** Analytics behavior is inspectable, offline-testable, and numerically grounded; the
+same executor serves HTTP and LangGraph paths. The operation set intentionally lacks joins, filters,
+derived formulas, date semantics, and large-data execution. CSV persistence remains a
+single-process local JSON snapshot and should be replaced behind the repository interface for
+production scale.
+
 ## ADR Template
 
 ```text

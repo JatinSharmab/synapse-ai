@@ -16,3 +16,8 @@ Regenerate the fixture from the repository root with:
 `evaluations/document-retrieval.v1.json` is the versioned Phase 5 retrieval dataset. It labels each
 query with its relevant document filename, page, and global chunk index for deterministic Recall@K
 and MRR comparisons between vector-only and hybrid retrieval.
+
+`datasets/regional-revenue.csv` is the non-sensitive Phase 7 analytics fixture. It contains six
+rows across three regions with numeric revenue/units and a boolean status column. Tests use its
+known totals and grouped values to verify deterministic CSV typing, aggregation, sorting, top-N,
+LangGraph planning, and numeric grounding.

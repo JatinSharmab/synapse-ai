@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.models.domain import Route
 from app.providers.base import LLMProvider
 from app.providers.errors import ProviderResponseError
+from app.schemas.analytics import AnalyticsPlan
 from app.schemas.inference import (
     EmbeddingResult,
     GenerationResult,
@@ -22,6 +23,7 @@ from app.schemas.inference import (
     StructuredGenerationResult,
     TokenUsage,
 )
+from app.services.analytics_planning import plan_for_mock
 from app.services.routing_rules import classify_for_mock
 
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
@@ -112,11 +114,14 @@ class MockProvider(LLMProvider):
     ) -> StructuredGenerationResult[StructuredModel]:
         del system_prompt
         self.call_history.append("generate_structured")
-        if response_model is not RouterClassification:
+        if response_model is AnalyticsPlan:
+            plan = plan_for_mock(user_prompt)
+            value = response_model.model_validate(plan.model_dump(mode="json"))
+        elif response_model is RouterClassification:
+            classification = classify_for_mock(user_prompt)
+            value = response_model.model_validate(classification.model_dump(mode="json"))
+        else:
             raise ProviderResponseError("MockProvider has no fixture for this structured schema.")
-
-        classification = classify_for_mock(user_prompt)
-        value = response_model.model_validate(classification.model_dump(mode="json"))
         return StructuredGenerationResult[StructuredModel](
             value=value,
             metadata=self._metadata(

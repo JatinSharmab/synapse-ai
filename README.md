@@ -2,9 +2,9 @@
 
 Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstrate senior-level AI engineering. It will reason across PDF documents, video content, and CSV data while keeping answers grounded in traceable evidence.
 
-> **Project status:** Phase 6 — multimodal video ingestion and semantic video retrieval. The AI
-> service now creates bounded temporal segments from representative MP4 keyframes and optional
-> transcripts, indexes them in Chroma, and returns trusted timestamp citations through LangGraph.
+> **Project status:** Phase 7 — safe deterministic CSV analytics. The AI service now accepts bounded
+> CSV datasets, maps analytical intent into a closed Pydantic operation union, and calculates all
+> source-of-truth numeric results in application code without arbitrary code execution.
 
 ## Intended Capabilities
 
@@ -22,17 +22,17 @@ Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstra
 
 ## Monorepo
 
-Phase 6 adds local MP4 ingestion while retaining the document pipeline, typed provider boundary,
-and deterministic Sentinel. Video metadata, temporal segments, embeddings, and derived artifacts
-use replaceable local adapters; automated tests use fake media processing and never call Mistral.
+Phase 7 adds constrained CSV analytics while retaining document/video retrieval, typed provider
+boundaries, and deterministic Sentinel. An LLM may select only a validated dataset and operation;
+the executor owns every count, aggregation, grouping, sort, and final numeric summary.
 
 ```text
 frontend/       React, TypeScript, Vite, Tailwind CSS development shell
 gateway/        Thin Express, TypeScript, Zod, CORS, Helmet gateway foundation
-ai-service/     FastAPI, LangGraph, PDF/video RAG, Chroma/BM25/RRF, typed providers/API
+ai-service/     FastAPI, LangGraph, PDF/video RAG, constrained CSV analytics, typed providers/API
 shared/         Reserved for implementation-neutral, versioned contracts
 scripts/        Transparent fixture-generation automation
-sample-data/    Curated, non-sensitive PDF fixture with known page evidence
+sample-data/    Curated PDF, CSV, and retrieval-evaluation fixtures
 docs/           Architecture, design, decisions, contracts, and build history
 ```
 
@@ -101,6 +101,8 @@ Local URLs:
 - Active AI provider: `http://localhost:8000/api/v1/system/ai-provider`
 - Documents API: `http://localhost:8000/api/v1/documents`
 - Videos API: `http://localhost:8000/api/v1/videos`
+- Datasets API: `http://localhost:8000/api/v1/datasets`
+- Analytics API: `http://localhost:8000/api/v1/analytics/execute`
 
 Both health endpoints return `service`, `status`, `version`, and `environment`.
 
@@ -166,6 +168,36 @@ Invoke-RestMethod `
   -ContentType "application/json" `
   -Body $videoSearch
 ```
+
+Upload the deterministic CSV fixture and execute a typed grouped aggregation:
+
+```powershell
+$dataset = curl.exe -s -X POST http://localhost:8000/api/v1/datasets `
+  -F "file=@sample-data/datasets/regional-revenue.csv;type=text/csv" |
+  ConvertFrom-Json
+
+$analyticsBody = @{
+  dataset_id = $dataset.dataset_id
+  operation = @{
+    operation = "group_by"
+    grouping_fields = @("region")
+    aggregation = "sum"
+    aggregation_field = "revenue"
+    limit = 10
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/api/v1/analytics/execute `
+  -ContentType "application/json" `
+  -Body $analyticsBody
+```
+
+CSV ingestion is bounded by `DATASET_MAX_UPLOAD_BYTES`, `DATASET_MAX_ROWS`, and
+`DATASET_MAX_COLUMNS`; output is bounded by `ANALYTICS_MAX_RESULT_ROWS`. The only accepted analytics
+operations are the Pydantic-discriminated schemas documented in the API contract. There is no
+Python, SQL, shell, expression, `eval`, or `exec` execution path.
 
 Hybrid-stage limits are configured with `VECTOR_TOP_K`, `BM25_TOP_K`, `RERANK_TOP_K`, and
 `FINAL_CONTEXT_K`. Retrieval diagnostics are off by default. Setting `DEBUG=true` registers
@@ -256,8 +288,8 @@ This is intentionally different from a production enterprise topology. See [Free
 
 ## Current Scope and Phase Boundary
 
-Phase 6 supports bounded local MP4 ingestion and vector retrieval over temporal segments. It does
-not implement OCR, learned cross-encoder reranking, production video queues/object storage, a live
-speech-to-text integration, CSV analytics execution, MongoDB, Supabase, authentication, persistent
-threads, Gen-UI, or production upload orchestration. PDFs with little or no extractable text still
-return `ocr_required=true`; visual and transcription enrichment may be disabled or partial.
+Phase 7 supports deterministic analytics over bounded local UTF-8 CSV files. It does not implement
+filters/joins, arbitrary expressions, time-series semantics, production data warehouses, OCR,
+production video queues/object storage, live speech-to-text, MongoDB, Supabase, authentication,
+persistent threads, Gen-UI, or production upload orchestration. Analytics persistence is a local
+single-process JSON adapter, and the current graph selects from locally uploaded datasets.

@@ -48,11 +48,13 @@ def test_queries_route_to_expected_deterministic_node(
     assert summary.trace[0] == f"router.selected={expected_route.value}"
     assert expected_tool_trace in summary.trace
     assert summary.trace[-1] == "sentinel=approve"
-    assert provider.call_history == ["generate_structured", "generate"]
-    assert [event.operation for event in summary.inference_metadata] == [
-        "generate_structured",
-        "generate",
-    ]
+    expected_calls = (
+        ["generate_structured"]
+        if expected_route == Route.DATA_ANALYTICS
+        else ["generate_structured", "generate"]
+    )
+    assert provider.call_history == expected_calls
+    assert [event.operation for event in summary.inference_metadata] == expected_calls
 
 
 def test_graph_terminates_with_a_complete_safe_summary() -> None:

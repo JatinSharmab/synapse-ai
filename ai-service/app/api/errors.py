@@ -2,11 +2,29 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.providers.errors import ProviderError, ProviderRateLimitError, ProviderTransientError
+from app.services.analytics_errors import AnalyticsError
 from app.services.document_errors import DocumentError
 from app.services.video_errors import VideoDependencyError, VideoError
 
 
 def register_provider_error_handlers(application: FastAPI) -> None:
+    @application.exception_handler(AnalyticsError)
+    async def handle_analytics_error(
+        request: Request,
+        error: AnalyticsError,
+    ) -> JSONResponse:
+        del request
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": False,
+                }
+            },
+        )
+
     @application.exception_handler(ProviderError)
     async def handle_provider_error(
         request: Request,

@@ -3,9 +3,10 @@
 ## Status and Conventions
 
 Unless marked as implemented, contracts in this document are **planned, versioned design contracts**.
-Through Phase 6, the repository implements `GET /health` on both backends and the AI-service chat,
+Through Phase 7, the repository implements `GET /health` on both backends and the AI-service chat,
 provider-status, local document CRUD, hybrid document search, local video upload/list, semantic
-video search, and debug-gated document retrieval endpoints
+video search, local dataset CRUD, constrained analytics execution, and debug-gated document
+retrieval endpoints
 described below. Exact
 future routes may evolve through recorded architecture decisions before implementation.
 
@@ -249,11 +250,12 @@ Returns trusted display metadata, modality, ingestion status, version/checksum m
 
 ## Chat and Streaming
 
-### `POST /api/v1/chat/invoke` — Document and video retrieval through Phase 6
+### `POST /api/v1/chat/invoke` — Document, video, and analytics routing through Phase 7
 
 Synchronously invokes the LangGraph workflow. `thread_id` is propagated for correlation only;
-Phase 6 still has no checkpointer or conversation memory. Document-routed queries use hybrid
-retrieval; video-routed queries use the semantic temporal-segment retriever.
+Phase 7 still has no checkpointer or conversation memory. Document-routed queries use hybrid
+retrieval; video-routed queries use semantic temporal-segment retrieval; analytics queries use a
+schema-constrained plan followed by deterministic execution over an uploaded CSV.
 
 ```json
 {
@@ -438,26 +440,71 @@ A citation references `evidence_id` and optional claim IDs. The server resolves 
 
 ## Constrained Analytics Contract
 
-### `POST /api/v1/analytics/execute`
+### `POST /api/v1/datasets` — Implemented in Phase 7 for local development
 
-This route may be used internally by orchestration or exposed with equivalent authorization. The operation is a versioned discriminated union. A representative request is:
+Accepts one bounded `multipart/form-data` field named `file`. The file must use `.csv`, declare an
+allowed CSV/text media type, be UTF-8, and have unique non-empty headers with consistent row widths.
+Byte, row, and column counts are configuration-bounded. The HTTP 201 response contains:
+
+```json
+{
+  "dataset_id": "dataset_opaque",
+  "filename": "regional-revenue.csv",
+  "columns": [
+    {"name": "region", "data_type": "string", "nullable": false},
+    {"name": "revenue", "data_type": "number", "nullable": false}
+  ],
+  "row_count": 6,
+  "checksum": "sha256_hex",
+  "created_at": "2026-07-02T00:00:00Z"
+}
+```
+
+Direct upload returns HTTP 403 in production mode.
+
+### `GET /api/v1/datasets` — Implemented in Phase 7
+
+Returns `{"datasets": [...]}` with trusted metadata only. Raw rows are not exposed by this route.
+
+### `DELETE /api/v1/datasets/{dataset_id}` — Implemented in Phase 7
+
+Deletes the local authoritative dataset or returns a safe HTTP 404.
+
+### `POST /api/v1/analytics/execute` — Implemented in Phase 7
+
+Executes one Pydantic-discriminated operation against an authoritative local dataset. A grouped
+request is:
 
 ```json
 {
   "dataset_id": "src_csv",
   "operation": {
-    "type": "group_by",
-    "group_columns": ["region"],
-    "aggregations": [
-      {"column": "revenue", "function": "sum", "alias": "total_revenue"}
-    ],
-    "sort": [{"column": "total_revenue", "direction": "desc"}],
+    "operation": "group_by",
+    "grouping_fields": ["region"],
+    "aggregation": "sum",
+    "aggregation_field": "revenue",
     "limit": 10
   }
 }
 ```
 
-Allowed types are `describe`, `count`, `sum`, `mean`, `min`, `max`, `group_by`, `sort`, `top_n`, and `aggregate`. Columns must exist in the validated dataset schema. Filters, cardinality, output rows, and execution time are bounded. No field accepts Python, SQL, JavaScript, or a general expression language.
+The response always uses the deterministic result shape:
+
+```json
+{
+  "summary": "Computed sum grouped by region: region=North, sum_revenue=200.75.",
+  "columns": ["region", "sum_revenue"],
+  "result_rows": [{"region": "North", "sum_revenue": 200.75}],
+  "statistics": {"group_count": 1, "returned_rows": 1},
+  "recommended_visualization": "bar_chart"
+}
+```
+
+Allowed operation discriminators are `describe`, `count`, `sum`, `mean`, `min`, `max`, `group_by`,
+`sort`, `top_n`, and `aggregation`. Every column must exist in the trusted schema; numeric functions
+require numeric fields; grouping, aliases, directions, aggregation functions, and row limits are
+validated. Unknown and extra fields fail schema validation. No field accepts Python, SQL,
+JavaScript, shell commands, code, or a general expression language.
 
 ## Gen-UI Contract
 

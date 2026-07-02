@@ -6,6 +6,8 @@ from app.api.routes.debug import router as debug_router
 from app.core.config import Settings, get_settings
 from app.providers.base import LLMProvider
 from app.providers.factory import create_llm_provider
+from app.services.analytics_factory import create_analytics_service
+from app.services.analytics_service import AnalyticsService
 from app.services.document_factory import create_document_rag_service
 from app.services.document_rag import DocumentRAGService
 from app.services.orchestrator import SynapseOrchestrator
@@ -18,6 +20,7 @@ def create_app(
     provider: LLMProvider | None = None,
     document_service: DocumentRAGService | None = None,
     video_service: VideoRAGService | None = None,
+    analytics_service: AnalyticsService | None = None,
 ) -> FastAPI:
     """Build the HTTP application with explicit, testable runtime settings."""
 
@@ -31,21 +34,27 @@ def create_app(
         runtime,
         active_provider,
     )
+    active_analytics_service = analytics_service or create_analytics_service(
+        runtime,
+        active_provider,
+    )
     application = FastAPI(
         title="Synapse AI Service",
-        description="Grounded document and timestamped video retrieval for Synapse.",
+        description="Grounded document/video retrieval and constrained CSV analytics for Synapse.",
         version=runtime.app_version,
     )
     application.state.settings = runtime
     application.state.llm_provider = active_provider
     application.state.document_service = active_document_service
     application.state.video_service = active_video_service
+    application.state.analytics_service = active_analytics_service
     application.state.orchestrator = SynapseOrchestrator(
         provider=active_provider,
         document_retriever=active_document_service,
         document_context_top_k=runtime.final_context_k,
         video_retriever=active_video_service,
         video_context_top_k=runtime.video_search_top_k,
+        analytics=active_analytics_service,
     )
     register_provider_error_handlers(application)
     application.include_router(api_router)

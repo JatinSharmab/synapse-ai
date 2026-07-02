@@ -17,6 +17,8 @@ from app.prompts.router import ROUTER_SYSTEM_PROMPT, build_router_user_prompt
 from app.prompts.synthesis import SYNTHESIS_SYSTEM_PROMPT, build_synthesis_user_prompt
 from app.providers.base import LLMProvider
 from app.schemas.inference import RouterClassification
+from app.services.analytics_errors import AnalyticsError
+from app.services.analytics_service import AnalyticsTool
 from app.services.document_rag import DocumentRetriever
 from app.services.video_rag import VideoRetriever
 from app.tools.placeholders import run_placeholder_tool
@@ -194,8 +196,44 @@ def video_search(
     return update
 
 
-def data_analytics(state: SynapseState) -> SynapseStateUpdate:
-    return _tool_node(state, Route.DATA_ANALYTICS)
+def data_analytics(state: SynapseState, analytics: AnalyticsTool) -> SynapseStateUpdate:
+    if state["route"] != Route.DATA_ANALYTICS:
+        return {
+            "errors": [
+                ErrorRecord(
+                    code="ROUTE_MISMATCH",
+                    message="Expected data_analytics route.",
+                )
+            ],
+            "trace": ["tool.error=data_analytics"],
+        }
+    try:
+        execution = analytics.plan_and_execute(state["user_query"])
+    except AnalyticsError as error:
+        return {
+            "tool_results": [
+                ToolResult(
+                    tool=Route.DATA_ANALYTICS,
+                    status=ToolStatus.FAILED,
+                    summary=f"Analytics could not run: {error}",
+                )
+            ],
+            "errors": [ErrorRecord(code=error.code, message=str(error))],
+            "trace": ["tool=data_analytics", "analytics.status=failed"],
+        }
+    update: SynapseStateUpdate = {
+        "tool_results": [
+            ToolResult(
+                tool=Route.DATA_ANALYTICS,
+                status=ToolStatus.COMPLETED,
+                summary=execution.result.summary,
+            )
+        ],
+        "trace": ["tool=data_analytics", "analytics.status=completed"],
+    }
+    if execution.inference_metadata is not None:
+        update["inference_metadata"] = [execution.inference_metadata]
+    return update
 
 
 def direct_answer(state: SynapseState) -> SynapseStateUpdate:
@@ -213,6 +251,14 @@ def _selected_tool_result(state: SynapseState) -> ToolResult | None:
 def synthesizer(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdate:
     route = state["route"]
     tool_result = _selected_tool_result(state)
+    if route == Route.DATA_ANALYTICS and tool_result is not None:
+        synthesis_event = (
+            "synthesizer=rewrite" if state["rewrite_count"] > 0 else "synthesizer=draft"
+        )
+        return {
+            "draft_response": tool_result.summary,
+            "trace": [synthesis_event, "synthesizer.mode=deterministic_analytics"],
+        }
     result = provider.generate(
         system_prompt=SYNTHESIS_SYSTEM_PROMPT,
         user_prompt=build_synthesis_user_prompt(

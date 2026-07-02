@@ -2,10 +2,10 @@
 
 ## Status
 
-This is the target AI design. Phase 6 adds bounded local MP4 ingestion and semantic timestamp
-retrieval alongside the Phase 5 hybrid PDF pipeline. Structured provider output still selects the
-route, provider text generation produces the draft, and Sentinel remains deterministic and bounded.
-Analytics execution and Gen-UI remain future work.
+This is the target AI design. Phase 7 adds constrained deterministic CSV analytics alongside the
+Phase 5 hybrid PDF and Phase 6 video pipelines. Structured provider output selects the route and a
+closed analytics plan, but application code calculates and renders every source-of-truth numeric
+result. Sentinel remains deterministic and bounded. Gen-UI remains future work.
 
 ## Design Goals
 
@@ -208,7 +208,8 @@ precise timestamp or accepts model-authored provenance.
 
 ## Data Analytics Tool
 
-The analytics tool executes only a typed allowlist of operations over a validated CSV-backed dataset:
+The Phase 7 analytics tool executes only a typed allowlist of operations over a validated CSV-backed
+dataset:
 
 - `describe`
 - `count`
@@ -219,11 +220,33 @@ The analytics tool executes only a typed allowlist of operations over a validate
 - `group_by`
 - `sort`
 - `top_n`
-- `aggregate`
+- `aggregation`
 
-An analytical request contains enumerated operations, validated column names, typed filters, sort direction, grouping fields, aggregation functions, and bounded row limits. The executor maps this request to controlled dataframe/library calls. It does not evaluate model-generated Python, SQL, expressions, shell commands, or dynamic imports.
+CSV ingestion validates extension, media type, UTF-8 encoding, unique/non-empty headers, consistent
+row width, byte size, row count, and column count. It infers only `string`, `number`, and `boolean`
+column types and persists raw cells plus trusted schema/checksum metadata through a repository
+interface.
 
-All reported numbers come from the deterministic executor. The LLM may explain or format results, but must not recalculate them. The response retains the dataset ID, dataset version/checksum, operation specification, result values, and execution metadata as evidence.
+An analytical plan is a Pydantic-discriminated union. Scalar `sum`, `mean`, `min`, and `max`
+operations require a numeric column. `group_by` requires one to three existing grouping fields and a
+valid aggregation field for non-count operations. `sort` accepts at most three validated fields and
+enumerated directions. `top_n`, grouped output, and multi-`aggregation` output are capped by the
+configured result limit. Unknown operation names, extra fields, missing columns, non-numeric
+aggregation fields, invalid aliases, and excessive limits fail closed.
+
+The LLM participates only through `generate_structured(AnalyticsPlan)`. The prompt supplies opaque
+dataset IDs, trusted column/type metadata, and the configured output cap; it explicitly forbids
+code, SQL, expressions, and calculations. Mock mode produces the same schema deterministically.
+The returned plan is validated again against the authoritative repository before dispatch.
+
+The executor dispatches through explicit `isinstance` branches to fixed application methods and
+uses `Decimal` for numeric source calculations. It has no Python shell, SQL executor, dynamic
+imports, `eval`, `exec`, or general expression field. Results contain `summary`, `columns`,
+`result_rows`, `statistics`, and `recommended_visualization`. In the graph, that deterministic
+summary is used directly as the draft; provider text generation cannot recalculate or alter it.
+
+The local-development API also accepts an already typed operation directly. All reported numbers
+come from the same deterministic executor regardless of whether the caller is HTTP or LangGraph.
 
 ## Synthesizer
 
@@ -354,10 +377,12 @@ Metrics link stages through correlation and run IDs. Provider calls record model
 ## Provider Abstractions and Mock Mode
 
 `LLMProvider` exposes `generate()`, `generate_structured()`, `describe_image()`, and `embed()`.
-Phase 6 uses structured generation in Router, text generation in Synthesizer, embeddings during
+Phase 7 uses structured generation in Router and Analytics Planner, text generation for non-analytics
+Synthesizer routes, embeddings during
 document/video indexing and querying, and optional vision descriptions for selected video
 keyframes. BM25, RRF, document reranking, temporal alignment, and context selection remain local
-deterministic operations.
+deterministic operations. Analytics arithmetic and graph output are also deterministic; provider
+types and model-authored values never enter the executor as executable code.
 
 `MistralProvider` reads its credential only from typed environment configuration and never returns or
 logs it. Requests have a bounded timeout. The adapter disables SDK-level retries and applies its own

@@ -2,10 +2,10 @@
 
 ## Status and Scope
 
-This document defines the target architecture. Through Phase 6, the repository implements the local
+This document defines the target architecture. Through Phase 7, the repository implements the local
 monorepo foundation, strongly typed LangGraph orchestration, replaceable Mock/Mistral inference, and
-citation-grounded retrieval over PDFs and small locally uploaded MP4 videos. Analytics execution,
-streaming, and cloud resources shown below remain design contracts.
+citation-grounded retrieval over PDFs and small MP4 videos plus constrained deterministic analytics
+over bounded CSV files. Streaming and cloud resources shown below remain design contracts.
 
 ## Architectural Principles
 
@@ -89,8 +89,9 @@ It must not import or reproduce LangGraph, prompts, embeddings, vector search, r
 
 ### AI Service
 
-The Phase 6 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
-settings, OpenAPI, process liveness, LangGraph orchestration, and local PDF/video RAG slices.
+The Phase 7 AI service implements a FastAPI application factory, Pydantic v2 API models, typed
+settings, OpenAPI, process liveness, LangGraph orchestration, local PDF/video RAG, and safe CSV
+analytics.
 PDF ingestion validates the file, extracts normalized page-aware text with PyMuPDF, creates semantic
 chunks, embeds them through `LLMProvider`, persists trusted metadata, and indexes vectors in
 ChromaDB. Document Search normalizes the query, combines Chroma vector results with `rank-bm25`
@@ -99,8 +100,11 @@ context. Video ingestion validates MP4 signatures and bounded probe metadata, ex
 configured maximum of representative frames, optionally enriches them through vision and offline
 mock transcription providers, constructs timestamped segments, and indexes their embeddings in a
 separate Chroma collection. Document and video graph routes return real evidence with deterministic
-page or timestamp citations; analytics remains a placeholder. Sentinel remains deterministic with
-a one-rewrite maximum.
+page or timestamp citations. CSV ingestion infers a bounded typed schema and stores trusted raw
+cells. The analytics planner can return only a Pydantic-discriminated operation; the executor then
+validates column/type/aggregation/limit constraints and calculates with fixed methods and Decimal
+arithmetic. Its numeric summary bypasses free-form synthesis, so the LLM is never the numerical
+authority. Sentinel remains deterministic with a one-rewrite maximum.
 
 ## Bounded LangGraph Flow
 
@@ -232,6 +236,12 @@ IDs, timestamps, transcript/visual text, keyframe references, and embedding meta
 IDs are resolved through that repository before timestamp evidence reaches synthesis. A typed
 `TranscriptionProvider` currently supplies disabled and deterministic Mock implementations; no paid
 transcription service is required.
+
+Phase 7 provides `JsonDatasetRepository` and an in-memory test adapter for authoritative CSV
+metadata and rows. Direct local upload is bounded by byte, row, and column limits and disabled in
+production. The closed analytics executor dispatches only by validated model type; it has no Python
+shell, SQL engine, expression language, dynamic import, `eval`, or `exec` path. Result rows are
+bounded independently of the uploaded row count.
 
 On AI-service startup, a reconstruction process compares durable index metadata with local Chroma state and rebuilds missing collections from stored embeddings. It must not call the embedding API for already embedded, version-compatible chunks.
 

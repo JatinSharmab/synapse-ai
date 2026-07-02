@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     )
 
     app_env: Environment = "development"
-    app_version: str = Field(default="0.6.0", min_length=1)
+    app_version: str = Field(default="0.7.0", min_length=1)
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=8000, ge=1, le=65_535)
     debug: bool = False
@@ -71,6 +71,11 @@ class Settings(BaseSettings):
         max_length=63,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$",
     )
+    dataset_max_upload_bytes: int = Field(default=5_242_880, ge=1, le=52_428_800)
+    dataset_max_rows: int = Field(default=10_000, ge=1, le=100_000)
+    dataset_max_columns: int = Field(default=50, ge=1, le=200)
+    analytics_max_result_rows: int = Field(default=100, ge=1, le=1_000)
+    dataset_metadata_path: Path = Path(gettempdir()) / "synapse-ai" / "datasets.json"
 
     @field_validator("debug", mode="before")
     @classmethod
