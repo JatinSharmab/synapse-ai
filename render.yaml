@@ -1,0 +1,59 @@
+services:
+  - type: web
+    name: synapse-ai-service
+    runtime: docker
+    plan: free
+    rootDir: ai-service
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_VERSION
+        value: 0.15.0
+      - key: AI_PROVIDER
+        value: mistral
+      - key: AI_CORS_ORIGINS
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: MISTRAL_CHAT_MODEL
+        value: mistral-small-latest
+      - key: MISTRAL_VISION_MODEL
+        value: mistral-small-latest
+      - key: MISTRAL_EMBED_MODEL
+        value: mistral-embed
+      - key: METADATA_BACKEND
+        value: mongo
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: synapse
+      - key: OBJECT_STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: synapse-assets
+      - key: DEBUG
+        value: "false"
+      - key: VECTOR_TOP_K
+        value: "20"
+      - key: BM25_TOP_K
+        value: "20"
+      - key: RERANK_TOP_K
+        value: "10"
+      - key: FINAL_CONTEXT_K
+        value: "5"
+      - key: MAX_VIDEO_SIZE_MB
+        value: "25"
+      - key: MAX_VIDEO_DURATION_SECONDS
+        value: "300"
+      - key: MAX_KEYFRAMES
+        value: "6"
+      - key: KEYFRAME_INTERVAL_SECONDS
+        value: "30"
