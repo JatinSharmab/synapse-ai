@@ -1,12 +1,13 @@
 {
   "name": "@synapse/frontend",
-  "version": "0.1.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "lint": "eslint .",
+    "lint": "eslint src tests vite.config.ts",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/frontend/tests/*.test.js",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
@@ -16,7 +17,9 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwind-merge": "^2.6.0"
+    "recharts": "^3.1.2",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

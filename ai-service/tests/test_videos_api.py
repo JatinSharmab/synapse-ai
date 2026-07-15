@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.main import create_app
 from app.providers.errors import ProviderTransientError
 from app.providers.mock import MockProvider
+from app.services.video_errors import VideoDurationError
 from app.services.video_factory import create_video_rag_service
 from app.services.video_media import (
     FFmpegMediaProcessor,
@@ -227,6 +228,27 @@ def test_duration_limit_is_enforced_from_ffprobe_metadata() -> None:
 
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "VIDEO_DURATION_EXCEEDED"
+
+
+def test_failed_video_ingestion_removes_staged_artifacts(tmp_path: Path) -> None:
+    settings = _settings().model_copy(
+        update={"max_video_duration_seconds": 1, "video_storage_path": tmp_path}
+    )
+    service = create_video_rag_service(
+        settings,
+        MockProvider(),
+        media_processor=FakeMediaProcessor(duration_seconds=61),
+        transcription_provider=MockTranscriptionProvider(),
+    )
+
+    with pytest.raises(VideoDurationError):
+        service.ingest_mp4(
+            filename="too-long.mp4",
+            content_type="video/mp4",
+            data=SYNTHETIC_MP4,
+        )
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_ffprobe_invocation_uses_argument_list_timeout_and_no_shell(

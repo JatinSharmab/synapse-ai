@@ -3,11 +3,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.domain import (
     Citation,
     ErrorRecord,
-    GenUIComponent,
     GuardrailResult,
     Intent,
     Route,
 )
+from app.schemas.genui import GenUIComponent
 from app.schemas.inference import InferenceMetadata
 
 
@@ -31,8 +31,8 @@ class ChatStateSummary(BaseModel):
 
     request_id: str
     thread_id: str
-    intent: Intent
-    route: Route
+    intent: Intent | None
+    route: Route | None
     final_response: str
     citations: list[Citation]
     genui: list[GenUIComponent]

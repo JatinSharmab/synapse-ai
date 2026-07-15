@@ -3,11 +3,11 @@
 ## Status and Conventions
 
 Unless marked as implemented, contracts in this document are **planned, versioned design contracts**.
-Through Phase 7, the repository implements `GET /health` on both backends and the AI-service chat,
-provider-status, local document CRUD, hybrid document search, local video upload/list, semantic
-video search, local dataset CRUD, constrained analytics execution, and debug-gated document
-retrieval endpoints
-described below. Exact
+Through Phase 13, the repository implements backend liveness, AI retrieval readiness, synchronous and SSE
+AI-service chat, provider-status, local document CRUD, hybrid document search, local video
+upload/list, semantic
+video search, local dataset CRUD, constrained analytics execution, secure Gen-UI responses, and
+debug-gated document retrieval endpoints described below. Exact
 future routes may evolve through recorded architecture decisions before implementation.
 
 - External base path: `/api/v1`
@@ -56,60 +56,48 @@ Reports process liveness only. Both backends return the same field shape with a 
 Implemented service names are `synapse-gateway` and `synapse-ai-service`. The endpoint does not claim
 dependency or AI readiness.
 
-### `GET /api/v1/readiness` — Planned
+### `GET /ready` — Implemented in Phase 12
 
 Reports whether required dependencies and local indexes are ready to serve relevant traffic.
 
 ```json
 {
+  "service": "synapse-ai-service",
   "status": "ready",
-  "checks": {
-    "metadata": "ready",
-    "object_storage": "ready",
-    "vector_index": "ready",
-    "ai_provider": "mock"
-  }
+  "documents": {"state": "ready", "durable_records": 3, "indexed_records": 3, "rebuilt": false, "error": null},
+  "videos": {"state": "ready", "durable_records": 2, "indexed_records": 2, "rebuilt": true, "error": null},
+  "checked_at": "2026-07-09T00:00:00Z"
 }
 ```
 
-`degraded`, `warming`, and `not_ready` are valid status concepts. Liveness must not claim index readiness.
+The endpoint returns HTTP 503 with `status=not_ready` while either namespace is starting,
+rebuilding, or failed. `GET /health` remains fast and never waits for reconciliation.
 
 ## Source and Upload Control
 
-### `POST /api/v1/uploads/authorize`
+### `POST /api/v1/uploads/presign` — Implemented in Phase 12
 
-Creates short-lived upload authorization for production browser-to-Supabase upload. Request fields include a sanitized filename, media type, byte size, checksum when available, and source kind (`pdf`, `video`, or `csv`). The response includes an opaque upload ID, signed upload information, expiry, and target object reference.
+Creates short-lived production browser-to-Supabase upload authorization. The strict request contains
+`asset_type` (`document|video`), a plain filename, allowed content type, and bounded `size_bytes`.
+The response contains only `signed_upload_url`, generated `object_path`, and `expires_at`; the
+Supabase service-role credential is never serialized.
 
 Large file bytes do not pass through this endpoint or the Vercel gateway.
 
-### `POST /api/v1/ingestions`
+### `POST /api/v1/documents/from-storage` and `POST /api/v1/videos/from-storage` — Phase 12
 
 Starts ingestion from an authorized stored object reference.
 
 ```json
 {
-  "upload_id": "upl_opaque",
-  "object_ref": "obj_opaque",
-  "source_kind": "pdf",
-  "display_name": "policy.pdf",
-  "options": {
-    "transcribe_audio": false
-  }
+  "object_path": "documents/0123456789abcdef0123456789abcdef/policy.pdf"
 }
 ```
 
-```json
-{
-  "ingestion_id": "ing_opaque",
-  "source_id": "src_opaque",
-  "status": "queued",
-  "correlation_id": "corr_opaque"
-}
-```
-
-The future object-ingestion API will verify that the object reference is authorized and matches
-expected ownership, type, size, and checksum. The Phase 4 local-development upload route belongs to
-FastAPI and is disabled in production mode.
+The service resolves a matching unexpired, unconsumed upload intent, downloads the private object
+with server credentials under the configured byte limit, verifies the exact authorized size, runs
+the existing ingestion pipeline, and marks the intent consumed. Replay returns HTTP 409. Direct
+multipart development endpoints remain disabled in production.
 
 ### `POST /api/v1/documents` — Implemented in Phase 4 for local development
 
@@ -250,10 +238,10 @@ Returns trusted display metadata, modality, ingestion status, version/checksum m
 
 ## Chat and Streaming
 
-### `POST /api/v1/chat/invoke` — Document, video, and analytics routing through Phase 7
+### `POST /api/v1/chat/invoke` — Layered Sentinel workflow through Phase 9
 
 Synchronously invokes the LangGraph workflow. `thread_id` is propagated for correlation only;
-Phase 7 still has no checkpointer or conversation memory. Document-routed queries use hybrid
+Phase 9 still has no checkpointer or conversation memory. Document-routed queries use hybrid
 retrieval; video-routed queries use semantic temporal-segment retrieval; analytics queries use a
 schema-constrained plan followed by deterministic execution over an uploaded CSV.
 
@@ -265,7 +253,8 @@ schema-constrained plan followed by deterministic execution over an uploaded CSV
 ```
 
 The safe response includes `request_id`, `thread_id`, `intent`, `route`, `final_response`, a
-document or video citation array when evidence is retrieved, an empty Gen-UI array,
+document or video citation array when evidence is retrieved, a validated Gen-UI array when a
+material deterministic analytics visualization is available,
 `guardrail_result`, public
 errors, safe trace events, safe inference metadata, and a bounded `rewrite_count`. Each document
 citation uses the retrieved `document_id`, `filename`, `page`, and `chunk_id`; the model cannot supply
@@ -276,6 +265,88 @@ internals, prompts, credentials, and private reasoning.
 `message` is trimmed and limited to 4,000 characters. `thread_id` is trimmed, limited to 128
 characters, and restricted to letters, digits, `.`, `_`, `:`, and `-`. Unknown request fields fail
 validation.
+
+`guardrail_result` has this public shape:
+
+```json
+{
+  "decision": "approve",
+  "groundedness_score": 1.0,
+  "citation_coverage": 1.0,
+  "prompt_injection_detected": false,
+  "schema_valid": true,
+  "reasons": ["GUARDRAILS_PASSED"],
+  "rewrite_required": false
+}
+```
+
+`decision` is exactly `approve`, `rewrite`, or `block`; both scores are between zero and one.
+Reasons are safe machine-readable codes and never prompts, model rationale, raw secrets, or private
+reasoning. An input-blocked request returns a safe response with `intent: null`, `route: null`, empty
+citations/Gen-UI, and no provider inference metadata because routing never ran.
+
+### `POST /api/v1/chat/stream` — Implemented in Phase 10
+
+The same strict JSON request accepted by `/invoke` produces `text/event-stream`. Browsers use a
+streaming `fetch()` POST rather than native `EventSource`, because the request has a JSON body. The
+endpoint is available directly on FastAPI and through the Express gateway at the same path.
+
+FastAPI and the gateway return these headers:
+
+```text
+Content-Type: text/event-stream; charset=utf-8
+Cache-Control: no-cache, no-transform
+X-Request-ID: opaque_request_id
+X-Correlation-ID: opaque_correlation_id
+X-Accel-Buffering: no
+```
+
+Every domain event uses an SSE `id` equal to its positive monotonic `sequence`, an `event` equal to
+its JSON `type`, and one strict JSON `data` object:
+
+```text
+id: 2
+event: route.selected
+data: {"schema_version":"1.0","request_id":"req_opaque","correlation_id":"corr_opaque","sequence":2,"type":"route.selected","route":"document_search"}
+```
+
+Implemented event types are:
+
+- `request.started`: safe request/correlation/thread identifiers.
+- `route.selected`: selected route only.
+- `retrieval.started`: `document_search` or `video_search` tool name.
+- `retrieval.completed`: tool, bounded candidate count, and stage latency.
+- `generation.started`: selected route; no prompt or draft.
+- `generation.token`: one ordered chunk from the final guardrail-checked response.
+- `genui.created`: validated Gen-UI components only.
+- `guardrail.completed`: public `GuardrailResult` and rewrite count.
+- `response.completed`: final response, trusted citations, citation count, total latency, and rewrite
+  count.
+- `error`: normalized code/message/retryability without exception, prompt, or provider internals.
+
+Heartbeat frames are SSE comments (`: heartbeat`) and contain no domain state. The FastAPI stream
+has configurable total and heartbeat intervals, observes client disconnects, requests iterator
+shutdown, and normalizes graph failures. The current provider contract returns complete text, so
+token events are deliberately emitted only after Sentinel has accepted or replaced the final
+response; unsafe drafts are never streamed.
+
+The Express gateway accepts only this bounded JSON chat route. It performs Zod validation, generates
+and propagates request/correlation IDs, applies an in-memory fixed-window rate limit, sets CORS and
+security headers, enforces an upstream timeout, forwards the request, preserves SSE bytes, aborts
+upstream work on client disconnect, and emits normalized errors for invalid JSON, upstream failure,
+timeout, or premature disconnect. It contains no prompts, graph, retrieval, embedding, provider, or
+agent code.
+
+The gateway intentionally does not register document or video multipart upload routes. Existing
+direct FastAPI uploads remain local-development endpoints. Production large binaries must use the
+browser-to-object-storage signed-upload architecture and must not traverse a Vercel gateway.
+
+For the Phase 15 production frontend, the gateway also exposes a fixed pass-through allowlist for
+small JSON control reads: `GET /ready`, `GET /api/v1/system/ai-provider`,
+`GET /api/v1/documents`, `GET /api/v1/videos`, `GET /api/v1/datasets`, and
+`GET /api/v1/evaluations/summaries?limit=...`. Evaluation `limit` is validated as an integer from
+1 through 100. These routes propagate request/correlation IDs, time out, normalize upstream errors,
+and contain no AI or retrieval logic. They are not a generic proxy.
 
 ### `GET /api/v1/system/ai-provider` — Implemented in Phase 3
 
@@ -508,40 +579,72 @@ JavaScript, shell commands, code, or a general expression language.
 
 ## Gen-UI Contract
 
-Components form a versioned discriminated union validated in Python with Pydantic and in TypeScript with Zod. The fixed allowlist is:
+Phase 8 implements a versioned discriminated union validated first with Pydantic and again with Zod
+immediately before frontend rendering. The fixed allowlist is:
 
 ```text
 text | metric | bar_chart | line_chart | pie_chart | table | citation_list | video_evidence
 ```
 
-A representative component is:
+A representative `bar_chart` component is:
 
 ```json
 {
+  "version": "1.0",
   "type": "bar_chart",
-  "id": "component_opaque",
-  "title": "Revenue by region",
+  "title": "Revenue by Region",
   "data": [
-    {"label": "North", "value": 120.0},
-    {"label": "South", "value": 95.0}
+    {"region": "North", "revenue": 120},
+    {"region": "South", "revenue": 95}
   ],
-  "x_key": "label",
-  "series": [{"data_key": "value", "label": "Revenue"}],
-  "evidence_ids": ["ev_analytics"]
+  "config": {
+    "xKey": "region",
+    "yKey": "revenue"
+  }
 }
 ```
 
-Schemas must cap component counts, rows, series, labels, and text. Arbitrary properties, HTML, JSX, scripts, event handlers, and unsafe URL schemes are rejected. The frontend never evaluates component data as code.
+All components require `version: "1.0"` and their literal `type`. Component-specific contracts are:
+
+- `text`: required bounded `text`.
+- `metric`: required bounded `label` and finite numeric or safe string `value`; optional `unit`.
+- `bar_chart` / `line_chart`: bounded row objects and `{xKey, yKey}`. Both keys must differ, exist
+  in every row, and `yKey` must reference a finite number. Line charts require at least two rows.
+- `pie_chart`: bounded rows and `{labelKey, valueKey}` with the same key/numeric rules.
+- `table`: bounded unique `{key, label}` columns and rows containing every configured key.
+- `citation_list`: bounded document/video citation display records.
+- `video_evidence`: bounded trusted video/segment IDs, filename, description, and a valid increasing
+  time range.
+
+The response wrapper is `{"components": [...]}` with at most five components. Objects are strict:
+unknown fields, unknown types/versions, invalid identifiers, malformed rows, blank/oversized text,
+non-finite numbers, and invalid cross-field keys are rejected. HTML tags, script markup,
+`javascript:` schemes, and event-handler syntax are rejected recursively.
+
+For analytics, the proposed type must match `recommended_visualization`, data rows must exactly
+equal deterministic executor output, table columns must exactly match result columns, and metric
+label/value must exactly match the single deterministic value. Any structured-provider, schema, or
+grounding failure returns the existing safe text answer with `genui: []`.
+
+The frontend selects renderers only from a frozen registry keyed by the validated eight-value
+discriminator. It never dynamically imports a component, evaluates JavaScript, invokes `eval` or
+`Function`, or injects raw HTML. Invalid frontend payloads render caller-supplied safe text.
 
 ## Evaluation Contracts
 
-### `POST /api/v1/evaluations/runs`
+### `GET /api/v1/evaluations/summaries?limit=10` — Implemented in Phase 13
 
-Starts a bounded evaluation against a versioned local/authorized dataset and named suite. Network-backed provider evaluation must be explicit; mock evaluation is the automated-test default.
+Returns newest-first completed evaluation summaries, bounded to `1..100` and capped by
+`EVALUATION_RECENT_LIMIT`. Each strict summary contains `run_id`, UTC `timestamp`, dataset/configuration
+identity and SHA-256 fingerprint, retrieval modes, safe provider/model identifiers, and aggregate
+retrieval/routing/generation/guardrail/system metrics. It never contains evaluation prompts,
+answers, retrieved context, system prompts, chain-of-thought, or hidden reasoning.
 
-### `GET /api/v1/evaluations/runs/{evaluation_run_id}`
+### `POST /api/v1/evaluations/runs` — Planned
 
-Returns suite version, provider mode, configuration fingerprint, status, aggregate metrics, per-case safe results, timings, and failures. Model-judge and deterministic metrics must be labeled separately.
+Remote evaluation execution is not exposed in Phase 13. Runs are initiated deliberately from the
+AI-service CLI so expensive configured-provider use cannot be triggered from this unauthenticated
+local-development API.
 
 ## Versioning and Compatibility
 

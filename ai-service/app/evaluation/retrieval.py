@@ -1,4 +1,5 @@
 from pathlib import Path
+from time import perf_counter
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +42,8 @@ class RetrievalMetrics(StrictEvaluationModel):
     query_count: int = Field(ge=1)
     recall_at_k: float = Field(ge=0, le=1)
     mrr: float = Field(ge=0, le=1)
+    average_latency_ms: float = Field(ge=0)
+    total_latency_ms: float = Field(ge=0)
 
 
 class RetrievalComparison(StrictEvaluationModel):
@@ -81,8 +84,11 @@ class RetrievalEvaluator:
     ) -> RetrievalMetrics:
         hits = 0
         reciprocal_ranks = 0.0
+        total_latency_ms = 0.0
         for case in dataset.cases:
+            started = perf_counter()
             execution = service.search(case.query, top_k=k, mode=mode)
+            total_latency_ms += (perf_counter() - started) * 1_000
             relevant_rank = next(
                 (
                     rank
@@ -101,6 +107,8 @@ class RetrievalEvaluator:
             query_count=query_count,
             recall_at_k=hits / query_count,
             mrr=reciprocal_ranks / query_count,
+            average_latency_ms=round(total_latency_ms / query_count, 3),
+            total_latency_ms=round(total_latency_ms, 3),
         )
 
     @staticmethod

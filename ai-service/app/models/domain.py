@@ -96,15 +96,14 @@ Citation = Annotated[
 ]
 
 
-class GenUIComponent(StrictDomainModel):
-    component_id: str
-    component_type: str
-    data: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
-
-
 class GuardrailResult(StrictDomainModel):
     decision: GuardrailDecision
-    reason_code: str
+    groundedness_score: float = Field(ge=0, le=1)
+    citation_coverage: float = Field(ge=0, le=1)
+    prompt_injection_detected: bool
+    schema_valid: bool
+    reasons: tuple[str, ...] = Field(min_length=1, max_length=20)
+    rewrite_required: bool
 
 
 class ErrorRecord(StrictDomainModel):

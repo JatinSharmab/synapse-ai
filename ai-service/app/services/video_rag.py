@@ -1,4 +1,7 @@
 import base64
+import json
+import logging
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -18,6 +21,8 @@ from app.providers.base import LLMProvider
 from app.providers.errors import ProviderError
 from app.repositories.videos import VideoRepository
 from app.schemas.inference import InferenceMetadata
+from app.services.document_rag import IndexSyncResult
+from app.services.filenames import safe_upload_filename
 from app.services.video_errors import (
     VideoDurationError,
     VideoMediaTypeError,
@@ -28,7 +33,9 @@ from app.services.video_errors import (
 )
 from app.services.video_media import VideoMediaProcessor
 from app.transcription.base import TranscriptionProvider, TranscriptionSpan
-from app.vectorstores.videos import ChromaVideoVectorStore
+from app.vectorstores.videos import VideoVectorStore
+
+LOGGER = logging.getLogger("synapse.video")
 
 MP4_MEDIA_TYPES = frozenset({"video/mp4", "application/mp4"})
 
@@ -66,7 +73,7 @@ class VideoRAGService:
         provider: LLMProvider,
         transcription_provider: TranscriptionProvider,
         repository: VideoRepository,
-        vector_store: ChromaVideoVectorStore,
+        vector_store: VideoVectorStore,
         media_processor: VideoMediaProcessor,
         storage_root: Path,
         max_video_size_bytes: int,
@@ -98,22 +105,35 @@ class VideoRAGService:
         artifact_root = self._storage_root / video_id
         artifact_root.mkdir(parents=True, exist_ok=False)
         video_path = artifact_root / "source.mp4"
-        video_path.write_bytes(data)
+        try:
+            video_path.write_bytes(data)
+        except Exception:
+            self._discard_artifacts(artifact_root)
+            raise
 
-        metadata = self._media_processor.probe(video_path)
+        try:
+            metadata = self._media_processor.probe(video_path)
+        except Exception:
+            self._discard_artifacts(artifact_root)
+            raise
         if metadata.duration_seconds > self._max_duration_seconds:
+            self._discard_artifacts(artifact_root)
             raise VideoDurationError("The video exceeds the configured duration limit.")
 
         timestamps = self._representative_timestamps(metadata.duration_seconds)
         keyframes: list[Path] = []
-        for index, timestamp in enumerate(timestamps):
-            keyframe_path = artifact_root / f"keyframe-{index:03d}.jpg"
-            self._media_processor.extract_keyframe(
-                video_path,
-                keyframe_path,
-                timestamp_seconds=timestamp,
-            )
-            keyframes.append(keyframe_path)
+        try:
+            for index, timestamp in enumerate(timestamps):
+                keyframe_path = artifact_root / f"keyframe-{index:03d}.jpg"
+                self._media_processor.extract_keyframe(
+                    video_path,
+                    keyframe_path,
+                    timestamp_seconds=timestamp,
+                )
+                keyframes.append(keyframe_path)
+        except Exception:
+            self._discard_artifacts(artifact_root)
+            raise
 
         visual_descriptions, visual_status = self._describe_keyframes(keyframes)
         transcript_spans, transcription_status = self._transcribe(
@@ -122,17 +142,22 @@ class VideoRAGService:
             duration_seconds=metadata.duration_seconds,
             has_audio=metadata.has_audio,
         )
-        drafts = self._build_segment_drafts(
-            timestamps=timestamps,
-            duration_seconds=metadata.duration_seconds,
-            keyframes=keyframes,
-            visual_descriptions=visual_descriptions,
-            transcript_spans=transcript_spans,
-        )
-        embedding_result = self._provider.embed(texts=[item.combined_text for item in drafts])
+        try:
+            drafts = self._build_segment_drafts(
+                timestamps=timestamps,
+                duration_seconds=metadata.duration_seconds,
+                keyframes=keyframes,
+                visual_descriptions=visual_descriptions,
+                transcript_spans=transcript_spans,
+            )
+            embedding_result = self._provider.embed(texts=[item.combined_text for item in drafts])
+        except Exception:
+            self._discard_artifacts(artifact_root)
+            raise
         if len(embedding_result.vectors) != len(drafts) or any(
             not vector for vector in embedding_result.vectors
         ):
+            self._discard_artifacts(artifact_root)
             raise VideoStorageError("The embedding provider returned an invalid video batch.")
 
         segments = [
@@ -169,7 +194,11 @@ class VideoRAGService:
             transcription=transcription_status,
             created_at=datetime.now(UTC),
         )
-        self._vector_store.upsert(segments, embedding_result.vectors)
+        try:
+            self._vector_store.upsert(segments, embedding_result.vectors)
+        except Exception:
+            self._discard_artifacts(artifact_root)
+            raise
         stored = [
             StoredTemporalSegment(segment=segment, embedding=embedding)
             for segment, embedding in zip(segments, embedding_result.vectors, strict=True)
@@ -178,6 +207,7 @@ class VideoRAGService:
             self._repository.save(video, stored)
         except Exception as error:
             self._vector_store.delete_video(video_id)
+            self._discard_artifacts(artifact_root)
             raise VideoStorageError("Video metadata could not be persisted.") from error
         return video
 
@@ -223,19 +253,23 @@ class VideoRAGService:
             )
         return VideoSearchExecution(results=results, inference_metadata=embedding_result.metadata)
 
-    def rebuild_index_if_needed(self) -> None:
+    def rebuild_index_if_needed(self) -> IndexSyncResult:
         stored = self._repository.list_segments()
-        if self._vector_store.count() == len(stored):
-            return
+        durable_ids = {item.segment.segment_id for item in stored}
+        if self._vector_store.list_ids() == durable_ids:
+            return IndexSyncResult(len(stored), len(durable_ids), False)
+        self._vector_store.clear()
         self._vector_store.upsert(
             [item.segment for item in stored],
             [item.embedding for item in stored],
         )
+        return IndexSyncResult(len(stored), self._vector_store.count(), True)
 
     def _validate_upload(self, filename: str, content_type: str | None, data: bytes) -> str:
-        safe_filename = filename.replace("\\", "/").rsplit("/", maxsplit=1)[-1].strip()
-        if not safe_filename or len(safe_filename) > 255:
-            raise VideoValidationError("The MP4 filename is invalid.")
+        try:
+            safe_filename = safe_upload_filename(filename)
+        except ValueError as error:
+            raise VideoValidationError("The MP4 filename is invalid.") from error
         if not safe_filename.casefold().endswith(".mp4"):
             raise VideoMediaTypeError("The uploaded filename must use the .mp4 extension.")
         if content_type not in MP4_MEDIA_TYPES:
@@ -247,6 +281,24 @@ class VideoRAGService:
         if b"ftyp" not in data[4:32]:
             raise VideoMediaTypeError("The uploaded file does not contain an MP4 signature.")
         return safe_filename
+
+    @staticmethod
+    def _discard_artifacts(artifact_root: Path) -> None:
+        try:
+            shutil.rmtree(artifact_root)
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            LOGGER.warning(
+                json.dumps(
+                    {
+                        "artifact_id": artifact_root.name,
+                        "error_type": type(error).__name__,
+                        "event": "video.artifact_cleanup_failed",
+                    },
+                    sort_keys=True,
+                )
+            )
 
     def _representative_timestamps(self, duration_seconds: float) -> list[float]:
         timestamps: list[float] = []

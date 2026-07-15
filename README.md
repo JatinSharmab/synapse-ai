@@ -2,9 +2,10 @@
 
 Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstrate senior-level AI engineering. It will reason across PDF documents, video content, and CSV data while keeping answers grounded in traceable evidence.
 
-> **Project status:** Phase 7 — safe deterministic CSV analytics. The AI service now accepts bounded
-> CSV datasets, maps analytical intent into a closed Pydantic operation union, and calculates all
-> source-of-truth numeric results in application code without arbitrary code execution.
+> **Project status:** Phase 15 — prepared for the documented $0 portfolio deployment topology.
+> Deployment descriptors, production browser routing, direct-to-Supabase uploads, bounded Render
+> cold-start handling, and exact operator setup are included. No cloud resources are created by the
+> repository; see `docs/DEPLOYMENT.md` and `docs/SECURITY.md` before publishing a deployment.
 
 ## Intended Capabilities
 
@@ -22,15 +23,17 @@ Synapse is a portfolio-grade Enterprise AI Intelligence OS designed to demonstra
 
 ## Monorepo
 
-Phase 7 adds constrained CSV analytics while retaining document/video retrieval, typed provider
-boundaries, and deterministic Sentinel. An LLM may select only a validated dataset and operation;
-the executor owns every count, aggregation, grouping, sort, and final numeric summary.
+Phase 15 preserves the AI-first product experience and production persistence. The frontend
+provides an AI chat workspace, local knowledge library, source drawer, timestamped video evidence,
+safe agent activity, Sentinel quality summaries, system readiness, and a fixed Recharts-backed
+Gen-UI registry, plus an aggregate evaluation observatory. FastAPI still owns intelligence and the
+gateway remains transport-only.
 
 ```text
-frontend/       React, TypeScript, Vite, Tailwind CSS development shell
-gateway/        Thin Express, TypeScript, Zod, CORS, Helmet gateway foundation
+frontend/       Responsive AI workspace, knowledge/evidence UI, strict SSE client, fixed Gen-UI
+gateway/        Thin Express validation, IDs, rate limiting, and SSE proxy
 ai-service/     FastAPI, LangGraph, PDF/video RAG, constrained CSV analytics, typed providers/API
-shared/         Reserved for implementation-neutral, versioned contracts
+shared/         Versioned implementation-neutral Zod Gen-UI contract
 scripts/        Transparent fixture-generation automation
 sample-data/    Curated PDF, CSV, and retrieval-evaluation fixtures
 docs/           Architecture, design, decisions, contracts, and build history
@@ -73,7 +76,7 @@ example to `.env` and set local values; `.env` files are ignored by Git.
 
 Run each service in a separate terminal from the repository root.
 
-Frontend development shell:
+Frontend AI workspace:
 
 ```powershell
 npm run dev:frontend
@@ -97,14 +100,35 @@ Local URLs:
 - Frontend: `http://localhost:5173`
 - Gateway health: `http://localhost:4000/health`
 - AI service health: `http://localhost:8000/health`
+- AI retrieval readiness: `http://localhost:8000/ready`
 - AI service OpenAPI: `http://localhost:8000/docs`
 - Active AI provider: `http://localhost:8000/api/v1/system/ai-provider`
 - Documents API: `http://localhost:8000/api/v1/documents`
 - Videos API: `http://localhost:8000/api/v1/videos`
 - Datasets API: `http://localhost:8000/api/v1/datasets`
 - Analytics API: `http://localhost:8000/api/v1/analytics/execute`
+- Gateway chat stream: `http://localhost:4000/api/v1/chat/stream`
+- Direct AI chat stream: `http://localhost:8000/api/v1/chat/stream`
+- Recent evaluation summaries: `http://localhost:8000/api/v1/evaluations/summaries`
 
-Both health endpoints return `service`, `status`, `version`, and `environment`.
+Run the reproducible, network-free evaluation suite from `ai-service/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.evaluation.run
+```
+
+By default it uses Mock mode and saves summaries to `EVALUATION_SUMMARY_PATH` (an OS-temporary JSON
+file by default), or MongoDB when `METADATA_BACKEND=mongo`. Use `--provider configured` only when you
+intentionally want the configured provider and accept its network/quota use.
+
+Both health endpoints return `service`, `status`, `version`, and `environment`. AI `/ready` separately
+reports document/video index reconstruction and returns 503 until both retrieval namespaces are usable.
+
+In Vite development, `/ai-local` proxies local knowledge-library and readiness calls directly to
+FastAPI at `http://127.0.0.1:8000`. Override that development target with `AI_SERVICE_DEV_URL`.
+Production browser requests use only `VITE_GATEWAY_URL`; they never receive a direct AI-service URL
+or a server credential. `VITE_ENABLE_LOCAL_UPLOADS=false` hides local direct upload actions.
+Production builds disable direct binary uploads regardless of that flag.
 
 Upload the deterministic sample PDF and search it:
 
@@ -141,10 +165,33 @@ It excludes the user query, draft response, tool internals, prompts, credentials
 reasoning. Citation filenames, document IDs, pages, and chunk IDs are copied from retrieval records,
 never generated by the model.
 
+Stream through the complete React-facing gateway path:
+
+```powershell
+$streamBody = '{"message":"Explain what RAG means.","thread_id":"local-stream"}'
+curl.exe -N -X POST http://localhost:4000/api/v1/chat/stream `
+  -H "Content-Type: application/json" `
+  -H "Accept: text/event-stream" `
+  --data $streamBody
+```
+
+The gateway requires `AI_SERVICE_URL` only when the AI service is not at
+`http://127.0.0.1:8000`. `GATEWAY_UPSTREAM_TIMEOUT_MS`, `GATEWAY_RATE_LIMIT_WINDOW_MS`, and
+`GATEWAY_RATE_LIMIT_MAX` provide bounded transport controls. FastAPI uses
+`SSE_STREAM_TIMEOUT_SECONDS` and `SSE_HEARTBEAT_SECONDS`.
+
 By default, local document metadata and Chroma data are written beneath the operating system's
 temporary directory. Set `DOCUMENT_METADATA_PATH` and `CHROMA_PERSIST_PATH` in `ai-service/.env` for
 a stable local location. Direct multipart upload is a bounded development endpoint and returns 403
-when `APP_ENV=production`; production object-storage ingestion remains a future phase.
+when `APP_ENV=production`.
+
+For production, set `METADATA_BACKEND=mongo`, `MONGODB_URI`, `MONGODB_DATABASE`,
+`OBJECT_STORAGE_PROVIDER=supabase`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` on the AI service.
+Create a private Supabase bucket named `synapse-assets` and allow the deployed frontend origin in
+Storage CORS. Never prefix the service-role variable with `VITE_` or configure it in the frontend.
+The browser obtains a short-lived URL from the gateway, uploads PDF/MP4 bytes directly to Supabase,
+and sends only the generated object path back through the gateway. Mongo persists the original
+embedding vectors and metadata needed to rebuild Chroma without another embedding-provider call.
 
 Local videos use the same development-only upload boundary. `MAX_VIDEO_SIZE_MB`,
 `MAX_VIDEO_DURATION_SECONDS`, `MAX_KEYFRAMES`, and `KEYFRAME_INTERVAL_SECONDS` bound processing and
@@ -198,6 +245,13 @@ CSV ingestion is bounded by `DATASET_MAX_UPLOAD_BYTES`, `DATASET_MAX_ROWS`, and
 `DATASET_MAX_COLUMNS`; output is bounded by `ANALYTICS_MAX_RESULT_ROWS`. The only accepted analytics
 operations are the Pydantic-discriminated schemas documented in the API contract. There is no
 Python, SQL, shell, expression, `eval`, or `exec` execution path.
+
+Gen-UI responses use `version: "1.0"` and exactly one of `text`, `metric`, `bar_chart`,
+`line_chart`, `pie_chart`, `table`, `citation_list`, or `video_evidence`. Unknown fields/types,
+invalid chart keys, malformed rows, non-finite values, HTML, scripts, event handlers, and unsafe
+schemes are rejected. Analytics chart/table/metric data must exactly equal the deterministic tool
+result or the backend returns only the safe text answer. The frontend validates unknown payloads
+again with Zod before selecting a renderer from its frozen registry.
 
 Hybrid-stage limits are configured with `VECTOR_TOP_K`, `BM25_TOP_K`, `RERANK_TOP_K`, and
 `FINAL_CONTEXT_K`. Retrieval diagnostics are off by default. Setting `DEBUG=true` registers
@@ -288,8 +342,9 @@ This is intentionally different from a production enterprise topology. See [Free
 
 ## Current Scope and Phase Boundary
 
-Phase 7 supports deterministic analytics over bounded local UTF-8 CSV files. It does not implement
-filters/joins, arbitrary expressions, time-series semantics, production data warehouses, OCR,
-production video queues/object storage, live speech-to-text, MongoDB, Supabase, authentication,
-persistent threads, Gen-UI, or production upload orchestration. Analytics persistence is a local
-single-process JSON adapter, and the current graph selects from locally uploaded datasets.
+Phase 10 supports typed SSE lifecycle and response events through the React → Express → FastAPI
+path. Generation chunks are emitted only after the completed response passes Sentinel; the current
+provider interface does not yet expose native token callbacks. The gateway intentionally has no
+upload proxy: local FastAPI multipart routes remain development-only, while production large-file
+uploads still require browser-to-object-storage signed URLs. Authentication, persistent threads,
+resume/replay storage, production deployment, and the final dashboard remain out of scope.

@@ -13,23 +13,51 @@ from app.models.domain import (
     VideoRetrievedContext,
 )
 from app.models.state import SynapseState, SynapseStateUpdate
+from app.prompts.genui import GENUI_SYSTEM_PROMPT, build_genui_user_prompt
 from app.prompts.router import ROUTER_SYSTEM_PROMPT, build_router_user_prompt
 from app.prompts.synthesis import SYNTHESIS_SYSTEM_PROMPT, build_synthesis_user_prompt
 from app.providers.base import LLMProvider
+from app.providers.errors import ProviderError
+from app.schemas.genui import GenUIResponse
 from app.schemas.inference import RouterClassification
 from app.services.analytics_errors import AnalyticsError
 from app.services.analytics_service import AnalyticsTool
 from app.services.document_rag import DocumentRetriever
+from app.services.genui import ground_analytics_genui
+from app.services.guardrails import GroundingGuard, InputGuard, OutputGuard
 from app.services.video_rag import VideoRetriever
 from app.tools.placeholders import run_placeholder_tool
 
-BLOCKED_INPUT_PATTERNS = (
-    "<script",
-    "javascript:",
-    "reveal system prompt",
-    "show chain of thought",
-)
-MINIMUM_DRAFT_LENGTH = 20
+INPUT_GUARD = InputGuard()
+GROUNDING_GUARD = GroundingGuard()
+OUTPUT_GUARD = OutputGuard()
+
+
+def input_guard(state: SynapseState) -> SynapseStateUpdate:
+    outcome = INPUT_GUARD.evaluate(state["user_query"])
+    if outcome.passed:
+        return {
+            "input_guard_passed": True,
+            "trace": ["guardrail.input=pass"],
+        }
+
+    result = GuardrailResult(
+        decision=GuardrailDecision.BLOCK,
+        groundedness_score=0,
+        citation_coverage=0,
+        prompt_injection_detected=outcome.prompt_injection_detected,
+        schema_valid=True,
+        reasons=outcome.reasons,
+        rewrite_required=False,
+    )
+    return {
+        "input_guard_passed": False,
+        "guardrail_result": result,
+        "final_response": "The request was blocked by deterministic input safety checks.",
+        "citations": [],
+        "genui": [],
+        "trace": ["guardrail.input=block", "sentinel=block"],
+    }
 
 
 def router(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdate:
@@ -222,6 +250,7 @@ def data_analytics(state: SynapseState, analytics: AnalyticsTool) -> SynapseStat
             "trace": ["tool=data_analytics", "analytics.status=failed"],
         }
     update: SynapseStateUpdate = {
+        "analytics_result": execution.result,
         "tool_results": [
             ToolResult(
                 tool=Route.DATA_ANALYTICS,
@@ -255,10 +284,28 @@ def synthesizer(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdat
         synthesis_event = (
             "synthesizer=rewrite" if state["rewrite_count"] > 0 else "synthesizer=draft"
         )
-        return {
+        update: SynapseStateUpdate = {
             "draft_response": tool_result.summary,
             "trace": [synthesis_event, "synthesizer.mode=deterministic_analytics"],
         }
+        analytics_result = state["analytics_result"]
+        if analytics_result is None or tool_result.status != ToolStatus.COMPLETED:
+            return update
+        try:
+            proposal = provider.generate_structured(
+                system_prompt=GENUI_SYSTEM_PROMPT,
+                user_prompt=build_genui_user_prompt(analytics_result),
+                response_model=GenUIResponse,
+            )
+            components = ground_analytics_genui(proposal.value, analytics_result)
+        except (AnalyticsError, ProviderError, ValueError):
+            update["genui"] = []
+            update["trace"] = [*update["trace"], "genui=fallback_safe_text"]
+            return update
+        update["genui"] = components
+        update["inference_metadata"] = [proposal.metadata]
+        update["trace"] = [*update["trace"], "genui=validated"]
+        return update
     result = provider.generate(
         system_prompt=SYNTHESIS_SYSTEM_PROMPT,
         user_prompt=build_synthesis_user_prompt(
@@ -268,6 +315,9 @@ def synthesizer(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdat
             retrieved_context=state["retrieved_context"],
             citations=state["citations"],
             rewrite_count=state["rewrite_count"],
+            guardrail_reasons=(
+                state["guardrail_result"].reasons if state["guardrail_result"] is not None else ()
+            ),
         ),
     )
 
@@ -279,49 +329,130 @@ def synthesizer(state: SynapseState, provider: LLMProvider) -> SynapseStateUpdat
     }
 
 
-def sentinel(state: SynapseState) -> SynapseStateUpdate:
-    query = state["user_query"].casefold()
+def sentinel(state: SynapseState, provider: LLMProvider | None = None) -> SynapseStateUpdate:
     draft = (state["draft_response"] or "").strip()
+    input_outcome = INPUT_GUARD.evaluate(state["user_query"])
+    grounding_outcome = GROUNDING_GUARD.evaluate(state, provider)
+    output_outcome = OUTPUT_GUARD.evaluate(state)
+    reasons = tuple(
+        dict.fromkeys(
+            [
+                *input_outcome.reasons,
+                *grounding_outcome.reasons,
+                *output_outcome.reasons,
+            ]
+        )
+    )
+    block_required = (
+        not input_outcome.passed
+        or grounding_outcome.block_required
+        or output_outcome.block_required
+    )
+    rewrite_required = grounding_outcome.rewrite_required or output_outcome.rewrite_required
+    grounding_status = (
+        "block"
+        if grounding_outcome.block_required
+        else "rewrite"
+        if grounding_outcome.rewrite_required
+        else "pass"
+    )
+    output_status = (
+        "block"
+        if output_outcome.block_required
+        else "rewrite"
+        if output_outcome.rewrite_required
+        else "fallback"
+        if not output_outcome.schema_valid
+        else "pass"
+    )
+    stage_trace = [
+        f"guardrail.grounding={grounding_status}",
+        f"guardrail.output={output_status}",
+    ]
+    if grounding_outcome.semantic_judgement_used:
+        stage_trace.insert(1, "guardrail.grounding.semantic=used")
 
-    if any(pattern in query for pattern in BLOCKED_INPUT_PATTERNS):
+    if block_required:
         result = GuardrailResult(
             decision=GuardrailDecision.BLOCK,
-            reason_code="UNSAFE_INPUT_PATTERN",
+            groundedness_score=grounding_outcome.groundedness_score,
+            citation_coverage=grounding_outcome.citation_coverage,
+            prompt_injection_detected=input_outcome.prompt_injection_detected,
+            schema_valid=output_outcome.schema_valid,
+            reasons=reasons or ("GUARDRAIL_BLOCKED",),
+            rewrite_required=False,
         )
-        return {
+        update: SynapseStateUpdate = {
             "guardrail_result": result,
-            "final_response": "The request was blocked by deterministic safety checks.",
-            "trace": ["sentinel=block"],
+            "final_response": "The response was blocked by deterministic safety checks.",
+            "citations": [],
+            "genui": [],
+            "trace": [*stage_trace, "sentinel=block"],
         }
+        if grounding_outcome.inference_metadata:
+            update["inference_metadata"] = list(grounding_outcome.inference_metadata)
+        return update
 
-    if len(draft) < MINIMUM_DRAFT_LENGTH:
+    if rewrite_required:
         if state["rewrite_count"] == 0:
             result = GuardrailResult(
                 decision=GuardrailDecision.REWRITE,
-                reason_code="RESPONSE_TOO_SHORT",
+                groundedness_score=grounding_outcome.groundedness_score,
+                citation_coverage=grounding_outcome.citation_coverage,
+                prompt_injection_detected=False,
+                schema_valid=output_outcome.schema_valid,
+                reasons=reasons or ("GUARDRAIL_REWRITE_REQUIRED",),
+                rewrite_required=True,
             )
-            return {
+            update = {
+                "genui": list(output_outcome.genui),
                 "guardrail_result": result,
                 "rewrite_count": 1,
-                "trace": ["sentinel=rewrite"],
+                "trace": [*stage_trace, "sentinel=rewrite"],
             }
+            if grounding_outcome.inference_metadata:
+                update["inference_metadata"] = list(grounding_outcome.inference_metadata)
+            return update
 
+        bounded_reasons = tuple(dict.fromkeys([*reasons, "REWRITE_LIMIT_REACHED"]))
         result = GuardrailResult(
             decision=GuardrailDecision.BLOCK,
-            reason_code="REWRITE_LIMIT_REACHED",
+            groundedness_score=grounding_outcome.groundedness_score,
+            citation_coverage=grounding_outcome.citation_coverage,
+            prompt_injection_detected=False,
+            schema_valid=output_outcome.schema_valid,
+            reasons=bounded_reasons,
+            rewrite_required=True,
         )
-        return {
+        update = {
             "guardrail_result": result,
             "final_response": "Synapse could not produce a safe response within the rewrite limit.",
-            "trace": ["sentinel=block"],
+            "citations": [],
+            "genui": [],
+            "trace": [*stage_trace, "sentinel=block"],
         }
+        if grounding_outcome.inference_metadata:
+            update["inference_metadata"] = list(grounding_outcome.inference_metadata)
+        return update
 
     result = GuardrailResult(
         decision=GuardrailDecision.APPROVE,
-        reason_code="DETERMINISTIC_CHECKS_PASSED",
+        groundedness_score=grounding_outcome.groundedness_score,
+        citation_coverage=grounding_outcome.citation_coverage,
+        prompt_injection_detected=False,
+        schema_valid=output_outcome.schema_valid,
+        reasons=reasons or ("GUARDRAILS_PASSED",),
+        rewrite_required=False,
     )
-    return {
+    trace = stage_trace
+    if not output_outcome.schema_valid:
+        trace = [*trace, "sentinel.genui=fallback_safe_text"]
+    update = {
+        "genui": list(output_outcome.genui),
         "guardrail_result": result,
         "final_response": draft,
-        "trace": ["sentinel=approve"],
+        "trace": [*trace, "sentinel=approve"],
     }
+    if grounding_outcome.inference_metadata:
+        update["inference_metadata"] = list(grounding_outcome.inference_metadata)
+    return update

@@ -5,8 +5,11 @@ from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFil
 from app.core.config import Settings
 from app.models.documents import DocumentRecord
 from app.schemas.documents import DocumentListResponse
+from app.schemas.uploads import StoredObjectRequest
 from app.services.document_errors import DocumentTooLargeError, DocumentValidationError
 from app.services.document_rag import DocumentRAGService
+from app.services.uploads import UploadCoordinator, UploadIntentError
+from app.storage.base import ObjectStorageError
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -40,6 +43,17 @@ async def upload_document(
         content_type=file.content_type,
         data=data,
     )
+
+
+@router.post("/from-storage", response_model=DocumentRecord, status_code=status.HTTP_201_CREATED)
+def ingest_document_from_storage(payload: StoredObjectRequest, request: Request) -> DocumentRecord:
+    coordinator = cast(UploadCoordinator, request.app.state.upload_coordinator)
+    try:
+        return coordinator.ingest_document(payload.object_path)
+    except UploadIntentError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    except ObjectStorageError as error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error)) from error
 
 
 @router.get("", response_model=DocumentListResponse)

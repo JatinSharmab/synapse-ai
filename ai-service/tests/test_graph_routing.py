@@ -45,7 +45,8 @@ def test_queries_route_to_expected_deterministic_node(
     )
 
     assert summary.route == expected_route
-    assert summary.trace[0] == f"router.selected={expected_route.value}"
+    assert summary.trace[0] == "guardrail.input=pass"
+    assert summary.trace[1] == f"router.selected={expected_route.value}"
     assert expected_tool_trace in summary.trace
     assert summary.trace[-1] == "sentinel=approve"
     expected_calls = (
@@ -65,6 +66,7 @@ def test_graph_terminates_with_a_complete_safe_summary() -> None:
 
     assert summary.final_response
     assert summary.guardrail_result.decision == GuardrailDecision.APPROVE
+    assert summary.guardrail_result.reasons == ("GUARDRAILS_PASSED",)
     assert summary.rewrite_count == 0
     assert summary.errors == []
 
@@ -85,6 +87,7 @@ def test_sentinel_rewrite_is_bounded_to_one_graph_cycle() -> None:
     assert sentinel_events == ["sentinel=rewrite", "sentinel=approve"]
     assert summary.rewrite_count == 1
     assert summary.guardrail_result.decision == GuardrailDecision.APPROVE
+    assert summary.guardrail_result.rewrite_required is False
     assert summary.trace.count("synthesizer=rewrite") == 1
     assert provider.call_history == ["generate_structured", "generate", "generate"]
 
@@ -104,5 +107,6 @@ def test_second_invalid_draft_blocks_instead_of_rewriting_again() -> None:
     state["guardrail_result"] = guardrail_result
 
     assert guardrail_result.decision == GuardrailDecision.BLOCK
+    assert "REWRITE_LIMIT_REACHED" in guardrail_result.reasons
     assert state["rewrite_count"] == 1
     assert route_after_sentinel(state) == "end"

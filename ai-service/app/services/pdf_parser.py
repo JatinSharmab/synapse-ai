@@ -9,6 +9,7 @@ from app.services.document_errors import (
     DocumentTooLargeError,
     DocumentValidationError,
 )
+from app.services.filenames import safe_upload_filename
 
 PDF_MEDIA_TYPE = "application/pdf"
 PDF_HEADER = b"%PDF-"
@@ -78,9 +79,10 @@ class PdfParser:
 
     @staticmethod
     def _validate_filename(filename: str) -> str:
-        safe_filename = filename.replace("\\", "/").rsplit("/", maxsplit=1)[-1].strip()
-        if not safe_filename or len(safe_filename) > 255:
-            raise DocumentValidationError("The PDF filename is invalid.")
+        try:
+            safe_filename = safe_upload_filename(filename)
+        except ValueError as error:
+            raise DocumentValidationError("The PDF filename is invalid.") from error
         if not safe_filename.casefold().endswith(".pdf"):
             raise DocumentMediaTypeError("The uploaded filename must use the .pdf extension.")
         return safe_filename

@@ -4,9 +4,12 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 
 from app.core.config import Settings
 from app.models.videos import VideoRecord
+from app.schemas.uploads import StoredObjectRequest
 from app.schemas.videos import VideoListResponse
+from app.services.uploads import UploadCoordinator, UploadIntentError
 from app.services.video_errors import VideoTooLargeError, VideoValidationError
 from app.services.video_rag import VideoRAGService
+from app.storage.base import ObjectStorageError
 
 router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
 
@@ -40,6 +43,17 @@ async def upload_video(
         content_type=file.content_type,
         data=data,
     )
+
+
+@router.post("/from-storage", response_model=VideoRecord, status_code=status.HTTP_201_CREATED)
+def ingest_video_from_storage(payload: StoredObjectRequest, request: Request) -> VideoRecord:
+    coordinator = cast(UploadCoordinator, request.app.state.upload_coordinator)
+    try:
+        return coordinator.ingest_video(payload.object_path)
+    except UploadIntentError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    except ObjectStorageError as error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error)) from error
 
 
 @router.get("", response_model=VideoListResponse)

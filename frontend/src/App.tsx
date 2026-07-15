@@ -1,119 +1,86 @@
-import type { LucideIcon } from "lucide-react";
-import { Activity, Blocks, BrainCircuit, Network, ShieldCheck, Terminal } from "lucide-react";
+import { BrainCircuit, Gauge, Library, MessageSquareText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
-import { StatusBadge } from "@/components/ui/status-badge";
+import { AIWorkspace } from "@/components/chat/ai-workspace";
+import { KnowledgeLibrary } from "@/components/knowledge/knowledge-library";
+import { EvaluationDashboard } from "@/components/evaluation/evaluation-dashboard";
+import { SystemStatus } from "@/components/system/system-status";
 import { runtimeConfig } from "@/config";
+import { cn } from "@/lib/utils";
 
-interface FoundationCard {
-  description: string;
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}
+type View = "workspace" | "knowledge" | "evaluation";
 
-const foundationCards: FoundationCard[] = [
-  {
-    label: "Experience layer",
-    value: "React workspace ready",
-    description: "Typed Vite and Tailwind foundation with a fixed component boundary.",
-    icon: Blocks,
-  },
-  {
-    label: "API boundary",
-    value: "Gateway health online",
-    description: "Thin Express service prepared for validation and safe proxying.",
-    icon: Network,
-  },
-  {
-    label: "Intelligence core",
-    value: "FastAPI health online",
-    description: "Python service boundary ready for future, explicitly scoped AI phases.",
-    icon: BrainCircuit,
-  },
+const navigation = [
+  { icon: MessageSquareText, label: "AI Workspace", value: "workspace" as const },
+  { icon: Library, label: "Knowledge", value: "knowledge" as const },
+  { icon: Gauge, label: "Evaluation", value: "evaluation" as const },
 ];
 
+const viewTitles: Record<View, string> = {
+  workspace: "AI Workspace",
+  knowledge: "Knowledge Library",
+  evaluation: "Evaluation & Observability",
+};
+
 export function App() {
+  const [view, setView] = useState<View>("workspace");
+  const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
+  const videoUrlsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => () => Object.values(videoUrlsRef.current).forEach((url) => URL.revokeObjectURL(url)), []);
+
+  const registerVideo = (videoId: string, filename: string, sourceUrl: string) => {
+    const next = { ...videoUrlsRef.current, [filename]: sourceUrl, [videoId]: sourceUrl };
+    videoUrlsRef.current = next;
+    setVideoUrls(next);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute left-1/2 top-[-22rem] h-[42rem] w-[42rem] -translate-x-1/2 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="absolute bottom-[-20rem] right-[-8rem] h-[36rem] w-[36rem] rounded-full bg-violet-500/10 blur-3xl" />
+      <div className="noise pointer-events-none fixed inset-0 z-50 opacity-[0.018]" aria-hidden="true" />
+      <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] lg:grid-cols-[72px_minmax(0,1fr)] xl:grid-cols-[232px_minmax(0,1fr)]">
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[72px] flex-col border-r border-white/[0.07] bg-[#070c15]/95 px-3 py-4 backdrop-blur-xl lg:flex xl:w-[232px] xl:px-4" aria-label="Primary navigation">
+          <div className="flex h-10 items-center gap-3 px-1.5 xl:px-2">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/[0.07] text-cyan-200"><BrainCircuit className="h-[18px] w-[18px]" aria-hidden="true" /></span>
+            <div className="hidden min-w-0 xl:block"><p className="text-[13px] font-semibold tracking-[0.19em] text-white">SYNAPSE</p><p className="mt-0.5 truncate text-[10px] text-slate-600">Intelligence OS</p></div>
+          </div>
+          <nav className="mt-9 space-y-1">
+            {navigation.map(({ icon: Icon, label, value }) => (
+              <button aria-current={view === value ? "page" : undefined} className={cn("group flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm transition", view === value ? "bg-white/[0.07] text-white" : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-300")} key={value} onClick={() => setView(value)} title={label} type="button">
+                <Icon className={cn("h-[18px] w-[18px] shrink-0", view === value && "text-cyan-300")} aria-hidden="true" /><span className="hidden xl:inline">{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="mt-auto hidden rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 xl:block">
+            <SystemStatus aiServiceUrl={runtimeConfig.aiServiceUrl} gatewayUrl={runtimeConfig.gatewayUrl} />
+          </div>
+          <span className="mx-auto mt-auto hidden h-2 w-2 rounded-full bg-emerald-400 lg:block xl:hidden" title="Readiness available in the header" />
+        </aside>
+
+        <div className="min-w-0 lg:col-start-2">
+          <header className="sticky top-0 z-30 flex h-16 items-center border-b border-white/[0.07] bg-[#080d17]/90 px-4 backdrop-blur-xl sm:px-6">
+            <div className="flex items-center gap-3 lg:hidden">
+              <span className="grid h-8 w-8 place-items-center rounded-lg border border-cyan-300/15 bg-cyan-300/[0.06] text-cyan-200"><BrainCircuit className="h-4 w-4" /></span>
+              <div><p className="text-[12px] font-semibold tracking-[0.16em] text-white">SYNAPSE</p><p className="text-[9px] text-slate-600">Enterprise AI Intelligence OS</p></div>
+            </div>
+            <p className="hidden text-xs text-slate-500 lg:block">Enterprise AI Intelligence OS <span className="mx-2 text-slate-800">/</span> <span className="text-slate-300">{viewTitles[view]}</span></p>
+          </header>
+
+          {view === "workspace" ? (
+            <AIWorkspace gatewayUrl={runtimeConfig.gatewayUrl} videoUrls={videoUrls} />
+          ) : view === "knowledge" ? (
+            <KnowledgeLibrary aiServiceUrl={runtimeConfig.aiServiceUrl} gatewayUrl={runtimeConfig.gatewayUrl} directUploadsEnabled={runtimeConfig.directUploadsEnabled} onVideoAvailable={registerVideo} />
+          ) : (
+            <EvaluationDashboard aiServiceUrl={runtimeConfig.aiServiceUrl} />
+          )}
+        </div>
       </div>
 
-      <header className="relative border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
-              <BrainCircuit className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold tracking-[0.28em] text-white">SYNAPSE</p>
-              <p className="text-xs text-slate-400">Enterprise AI Intelligence OS</p>
-            </div>
-          </div>
-          <StatusBadge>Phase 1 foundation</StatusBadge>
-        </div>
-      </header>
-
-      <main className="relative mx-auto max-w-7xl px-6 py-16 lg:px-8 lg:py-24">
-        <section className="max-w-4xl">
-          <div className="mb-6 flex items-center gap-2 text-sm font-medium text-cyan-200">
-            <Activity className="h-4 w-4" aria-hidden="true" />
-            Development environment initialized
-          </div>
-          <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-white sm:text-6xl">
-            A disciplined foundation for multimodal AI engineering.
-          </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-            This shell confirms the service boundaries and developer experience for Synapse. AI
-            workflows, retrieval, providers, and the final workspace remain intentionally deferred.
-          </p>
-        </section>
-
-        <section className="mt-14 grid gap-4 md:grid-cols-3" aria-label="Foundation services">
-          {foundationCards.map(({ description, icon: Icon, label, value }) => (
-            <article
-              key={label}
-              className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-panel backdrop-blur"
-            >
-              <div className="flex items-center justify-between">
-                <Icon className="h-5 w-5 text-cyan-300" aria-hidden="true" />
-                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.9)]" />
-              </div>
-              <p className="mt-8 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                {label}
-              </p>
-              <h2 className="mt-2 text-lg font-medium text-white">{value}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-400">{description}</p>
-            </article>
-          ))}
-        </section>
-
-        <section className="mt-6 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <article className="rounded-2xl border border-white/10 bg-slate-900/50 p-6">
-            <div className="flex items-center gap-3">
-              <ShieldCheck className="h-5 w-5 text-violet-300" aria-hidden="true" />
-              <h2 className="font-medium text-white">Phase boundary</h2>
-            </div>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-400">
-              No authentication, databases, agents, model providers, retrieval pipelines, or
-              generated UI are active in this phase. Each capability will arrive behind a typed,
-              tested contract in a separately approved phase.
-            </p>
-          </article>
-
-          <article className="rounded-2xl border border-white/10 bg-slate-950/80 p-6 font-mono text-sm">
-            <div className="flex items-center gap-3 text-slate-300">
-              <Terminal className="h-4 w-4 text-cyan-300" aria-hidden="true" />
-              <span>Gateway target</span>
-            </div>
-            <code className="mt-4 block overflow-x-auto text-cyan-200">
-              {runtimeConfig.gatewayUrl}/health
-            </code>
-          </article>
-        </section>
-      </main>
+      <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-3 rounded-2xl border border-white/[0.10] bg-[#0a101b]/95 p-1.5 shadow-2xl backdrop-blur-xl lg:hidden" aria-label="Mobile navigation">
+        {navigation.map(({ icon: Icon, label, value }) => (
+          <button className={cn("flex h-11 items-center justify-center gap-2 rounded-xl text-xs transition", view === value ? "bg-white/[0.07] text-white" : "text-slate-500")} key={value} onClick={() => setView(value)} type="button"><Icon className={cn("h-4 w-4", view === value && "text-cyan-300")} />{label}</button>
+        ))}
+      </nav>
     </div>
   );
 }
-

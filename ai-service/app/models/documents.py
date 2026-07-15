@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.inference import InferenceMetadata
+
 
 class StrictDocumentModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -32,6 +34,7 @@ class DocumentChunk(StrictDocumentModel):
 class StoredDocumentChunk(StrictDocumentModel):
     chunk: DocumentChunk
     embedding: list[float] = Field(min_length=1)
+    embedding_metadata: InferenceMetadata | None = None
 
 
 class DocumentSearchResult(StrictDocumentModel):

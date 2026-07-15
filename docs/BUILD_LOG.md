@@ -512,3 +512,595 @@ This log records completed project phases. Entries describe work actually perfor
 - LLM-written narrative summaries for analytics; Phase 7 returns the deterministic tool summary
 - Production object storage/signed uploads, authentication, persistent threads, Gen-UI, streaming,
   and deployment
+
+## Phase 8 — Secure Generative UI Protocol
+
+**Date:** 2026-07-03  
+**Status:** Complete
+
+### Delivered
+
+- Added protocol version `1.0` as a strict Pydantic discriminated union for `text`, `metric`,
+  `bar_chart`, `line_chart`, `pie_chart`, `table`, `citation_list`, and `video_evidence`.
+- Added equivalent canonical Zod schemas under `shared/`, re-exported by the frontend, with strict
+  unknown-field/type/version rejection and matching component constraints.
+- Added bounds for component count, rows, object fields, table columns, citations, video evidence,
+  identifiers, and text. Numeric values must be finite.
+- Added cross-field validation for chart label/value keys, numeric value columns, table key
+  uniqueness/completeness, and increasing video timestamp ranges.
+- Added recursive rejection of HTML tags, script markup, `javascript:` schemes, and event-handler
+  syntax in model-provided strings.
+- Added conditional structured `GenUIResponse` synthesis only for completed deterministic analytics
+  results with a material `recommended_visualization`.
+- Added exact analytics grounding: chart/table rows and columns or metric label/value must match the
+  deterministic executor result. Provider, schema, or grounding failure returns `genui=[]` while
+  preserving the safe text answer.
+- Added a final Sentinel Pydantic validation before approval.
+- Added a frozen frontend registry with statically imported renderers for all eight supported types.
+  The renderer validates unknown payloads with Zod immediately before registry lookup and otherwise
+  renders caller-supplied safe text.
+- Added no dynamic component imports, `eval`, `Function`, or raw HTML rendering path.
+- Added a validated Gen-UI protocol preview to the existing development shell without building the
+  final dashboard.
+- Declared Zod directly in the frontend workspace and added frontend TypeScript test compilation.
+- Updated API/design/architecture/README/shared-contract documentation and added ADR-017.
+
+### Verification
+
+- Pydantic tests cover a valid chart, every allowlisted type, invalid/unknown types, missing fields,
+  malformed rows, unsafe HTML/script/event-handler content, unknown fields, and invalid chart keys.
+- Backend grounding tests reject model-modified analytics values.
+- Graph tests verify structured Gen-UI generation, exact deterministic values, safe operational
+  traces, and text-only fallback when the provider cannot return valid structured UI.
+- Zod tests cover valid charts, invalid/unknown types, missing fields, malformed numeric data,
+  unsafe markup, unknown properties, and invalid/missing/duplicate chart keys.
+- Frontend renderer tests verify the exact frozen registry, safe-text fallback, and absence of
+  dynamic import, `eval`, `Function`, and `dangerouslySetInnerHTML` paths.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 105 files.
+- Strict mypy passed across 104 application and test source files.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 74 AI-service tests.
+- Frontend Gen-UI tests passed all 8 tests; the gateway health smoke test passed 1 test.
+- Root npm lint and TypeScript typechecks passed; frontend and gateway production builds passed.
+
+### Resolved During Verification
+
+- The first sandboxed npm install could not reach/write the npm cache. It was rerun with scoped
+  approval, declared the already available Zod package directly, and reported zero vulnerabilities.
+- The first frontend test compilation emitted shared code as CommonJS under NodeNext, which did not
+  provide the expected ESM named exports. The test compiler now uses the same ESNext/Bundler module
+  semantics as the frontend; all tests pass.
+- ESLint initially scanned generated `.test-dist` output and rejected its carried source directive.
+  The generated test directory is now ignored, while source lint remains enabled and passing.
+- The first early mypy run revealed `analytics_result` had been inserted into the document node
+  rather than the analytics node. It was moved to the correct typed state update before tests.
+- One strict test variable annotation and one formatting-only difference were corrected; final
+  mypy and formatter runs passed.
+- Chroma continues to emit one upstream Python deprecation warning for
+  `asyncio.iscoroutinefunction`; it remains visible and unsuppressed.
+- Git status/diff inspection remains unavailable because Git rejects the workspace ownership as
+  unsafe. No global Git safety configuration was changed.
+
+### Deferred by Design
+
+- Interactive Gen-UI actions, callbacks, arbitrary styling, nested layouts, and custom components
+- Gen-UI for non-analytics routes beyond the typed citation/video components and fixed renderers
+- The final dashboard/chat workspace, streaming delivery, authentication, and deployment
+
+## Phase 9 — Layered Sentinel Guardrails
+
+**Date:** 2026-07-05  
+**Status:** Complete
+
+### Delivered
+
+- Added a deterministic pre-router `InputGuard` so blocked prompt-injection, system-prompt
+  extraction, dangerous-tool instruction, and oversized-query patterns never reach Router or a
+  provider.
+- Added independent `GroundingGuard` and `OutputGuard` stages instead of a generic Sentinel prompt.
+- Expanded `GuardrailResult` with `decision`, `groundedness_score`, `citation_coverage`,
+  `prompt_injection_detected`, `schema_valid`, `reasons`, and `rewrite_required`.
+- Added exact citation-to-context mapping for document IDs, filenames, pages, chunk IDs, video IDs,
+  segment IDs, timestamps, and server-derived citation IDs/locators.
+- Added detection for missing/fabricated citations, unknown textual citation/page references,
+  insufficient claim coverage, unsupported numeric claims, irrelevant context, and deterministic
+  analytics-summary mismatches.
+- Added an isolated structured `SemanticGroundingJudgement` with booleans and an enum only for an
+  ambiguous lexical-support band. Deterministic findings bypass it; provider failures fail
+  conservatively. The schema and prompt request no rationale or private reasoning.
+- Added output bounds, Pydantic Gen-UI validation, HTML/script/event-handler rejection, and
+  secret-pattern detection. Malformed Gen-UI is removed while safe text survives; critical unsafe
+  output is replaced by a fixed block message.
+- Preserved exactly one repair cycle. A repeated repairable finding terminates with
+  `REWRITE_LIMIT_REACHED`; critical findings block immediately.
+- Allowed `intent` and `route` to be null only for a request blocked before routing, while preserving
+  the safe state-summary contract.
+- Updated service version to `0.9.0`, architecture/design/API documentation, README status, and
+  added ADR-018.
+
+### Verification
+
+- Adversarial tests cover the exact instruction to ignore previous instructions and reveal the
+  system prompt, maximum query length, dangerous tool instructions, fabricated citations,
+  nonexistent pages, missing citations, unsupported claims, irrelevant context, malformed Gen-UI,
+  output length, script injection, and secret-like output.
+- Tests prove unsafe input causes zero provider calls, ambiguous semantic assessment is structured
+  and isolated, malformed Gen-UI falls back to text, and unsupported/oversized output can rewrite
+  only once before termination.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 86 AI-service tests.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 109 files.
+- Strict mypy passed across 108 application and test source files.
+- Root npm lint and TypeScript typechecks passed.
+- Frontend Gen-UI tests passed all 8 tests; the gateway health smoke test passed 1 test.
+- Frontend and gateway production builds passed.
+
+### Resolved During Verification
+
+- The first focused test command used the system Python 3.14 instead of the project virtual
+  environment and failed collection because project dependencies were unavailable. All actual test
+  runs were repeated with `ai-service/.venv/Scripts/python.exe` and passed.
+- Five existing trace assertions initially expected Router to be the first event. They were updated
+  for the new pre-router input stage; the focused rerun passed 71 tests before final expansion.
+- Ruff and mypy initially attempted to write locked repository cache directories. Ruff was rerun
+  with `--no-cache`, and mypy used a scoped temporary cache directory.
+- Ruff reported three formatting-only differences. Direct formatter writes were denied by the
+  workspace permission profile, so the exact formatter suggestions were applied through the
+  permitted patch mechanism; the final formatter check passed.
+- Chroma continues to emit one upstream Python deprecation warning for
+  `asyncio.iscoroutinefunction`; it remains visible and unsuppressed.
+
+### Deferred by Design
+
+- Full policy/content moderation, comprehensive DLP, and production-grade secret classification
+- Claim-level natural-language inference beyond the narrow optional semantic classifier
+- Per-claim citation spans and calibrated model-judge evaluation datasets
+- Authentication, persistent threads, streaming delivery, production deployment, and the final UI
+
+## Phase 10 — Production-Oriented SSE Communication
+
+**Date:** 2026-07-06  
+**Status:** Complete
+
+### Delivered
+
+- Added strict Pydantic SSE event models for `request.started`, `route.selected`,
+  `retrieval.started`, `retrieval.completed`, `generation.started`, `generation.token`,
+  `genui.created`, `guardrail.completed`, `response.completed`, and `error`.
+- Added `POST /api/v1/chat/stream` to FastAPI with propagated/generated request and correlation IDs,
+  monotonic SSE IDs, no-buffer headers, heartbeat comments, a total timeout, normalized errors, and
+  client-disconnect-aware iterator cleanup.
+- Added LangGraph `values` streaming through the orchestrator and projected only safe operational
+  fields. Raw graph state, prompts, drafts, context, traces, provider exceptions, and private
+  reasoning are never emitted.
+- Delayed all `generation.token` events until the final response has completed Sentinel validation,
+  preventing unsafe drafts or secrets from escaping before output guards.
+- Added a thin Express SSE route with strict Zod request validation, generated request IDs,
+  accepted-or-generated correlation IDs, fixed-window per-client rate limiting, CORS-exposed IDs,
+  Helmet, bounded upstream timeouts, byte-preserving SSE proxying, backpressure handling, and stream
+  cleanup.
+- Added normalized JSON errors before streaming and typed SSE errors after headers for upstream
+  disconnects/timeouts. Downstream disconnects abort the upstream request.
+- Kept AI responsibilities out of the gateway: it contains no prompts, LangGraph, retrieval,
+  embeddings, Mistral, analytics, or agent logic.
+- Registered no document/video upload proxy routes in the gateway. Direct FastAPI multipart upload
+  remains local-development-only; the documented production boundary remains signed browser upload
+  to object storage.
+- Added a canonical shared Zod stream-event union and a strict incremental React SSE parser that
+  rejects malformed JSON/schema data and mismatched SSE event/type or ID/sequence envelopes.
+- Added a small React development transport panel that exercises the complete
+  React → Express → FastAPI path without building the final dashboard.
+- Added typed stream/timeout/rate-limit environment settings and updated service versions to
+  `0.10.0` where applicable.
+- Updated README, architecture, AI design, API contracts, shared contracts, and ADR-019.
+
+### Verification
+
+- FastAPI SSE tests cover typed event sequencing, request/correlation ID propagation, safe field
+  projection, document retrieval lifecycle/counts, post-guardrail analytics Gen-UI, normalized graph
+  failures, heartbeat timeout, and graph-iterator closure after client disconnect.
+- Gateway integration tests cover forwarding and header propagation, validation before upstream
+  calls, malformed JSON normalization, rate limiting, upstream premature disconnect, downstream
+  client disconnect/upstream abort, upstream timeout, and absence of binary upload proxy routes.
+- Frontend tests cover incremental chunk parsing, Zod validation, envelope/data consistency, and
+  streaming POST forwarding through the gateway URL.
+- `AI_PROVIDER=mock pytest -p no:cacheprovider` passed all 92 AI-service tests.
+- `ruff check --no-cache app tests ../scripts/generate_sample_pdf.py` passed.
+- `ruff format --no-cache --check app tests ../scripts/generate_sample_pdf.py` passed for 112 files.
+- Strict mypy passed across 111 application and test source files.
+- Frontend passed 11 tests across three suites; gateway passed 9 tests across two suites.
+- Root npm lint and TypeScript typechecks passed; frontend and gateway production builds passed.
+
+### Resolved During Verification
+
+- The first frontend typecheck rejected an optional `AbortSignal` under
+  `exactOptionalPropertyTypes` and Zod effects nested directly inside discriminated unions. The
+  request init now conditionally includes the signal, and cross-field citation/count refinements run
+  on the completed event union. Final frontend checks pass.
+- The frontend test compiler initially included the React transport panel without its Vite path
+  aliases. Its test scope now includes the framework-independent stream client plus shared schemas;
+  the application build separately typechecks the panel.
+- The first gateway test compilation found an optional response-header value. The test now narrows
+  the header before matching it.
+- The first complete npm lint run flagged Express's required fourth error-middleware parameter as
+  unused. It is now explicitly consumed; final lint passes.
+- The first final Ruff format check reported two line-wrap-only changes in the streaming service.
+  The exact formatter output was applied and the final 112-file check passes.
+- A combined documentation patch missed an exact architecture line and applied nothing. The same
+  scoped documentation changes were split into verified patches.
+- Chroma continues to emit one upstream Python deprecation warning for
+  `asyncio.iscoroutinefunction`; it remains visible and unsuppressed.
+
+### Deferred by Design
+
+- Provider-native token callbacks; current token events chunk only the final guarded response
+- Durable/distributed rate limiting, SSE replay, `Last-Event-ID` resumption, and persistent runs
+- Immediate cancellation inside a blocking synchronous provider call; its provider timeout remains
+  the hard bound before the worker can observe a disconnect stop request
+- Authentication, production object-storage signing, deployment, and the final dashboard
+
+## Phase 11 — Polished AI-First Frontend
+
+**Date:** 2026-07-08  
+**Status:** Complete
+
+### Delivered
+
+- Replaced the development shell with a responsive, dark-first AI workspace that communicates
+  “Enterprise AI Intelligence OS” and makes the guarded answer the primary visual surface.
+- Added explicit Thinking, Routing, Searching Documents, Searching Video, Analyzing Data,
+  Synthesizing, Validating, Complete, and Error presentation states derived from typed SSE events.
+- Added a Knowledge Library that validates and lists the existing document, video, and dataset API
+  contracts, with professional empty/loading/partial-service states and bounded PDF/MP4/CSV upload
+  controls for local development.
+- Added a Vite-only `/ai-local` proxy for local FastAPI health, metadata, and upload requests. The
+  Express gateway gained no binary endpoints, and production builds disable direct uploads.
+- Added a citation/source drawer, trusted page/timestamp display, and a controlled video-evidence
+  player that seeks to `start_seconds` on metadata load or evidence selection. Missing local binary
+  access is stated explicitly rather than replaced with synthetic media.
+- Added an Agent Activity panel that shows only safe route, tool, candidate count, latency, citation
+  count, rewrite count, and guardrail decision metadata. It exposes no prompts, graph state, draft,
+  retrieved context, or chain-of-thought.
+- Added a live Response Quality summary backed only by public Sentinel groundedness, citation
+  coverage, schema validity, decision, rewrite count, and completed-response latency.
+- Upgraded the frozen eight-type Gen-UI registry to polished React renderers. Bar, line, and pie
+  charts use statically imported Recharts primitives; all payloads still pass the shared Zod schema
+  and malformed components fail closed to safe text.
+- Added gateway/AI/provider health and cold-start readiness states, retry handling, loading
+  skeletons, restrained transitions, accessible labels, Escape-to-close evidence behavior, and
+  reduced-motion support.
+- Added desktop three-zone layout, tablet collapsed-detail layout, mobile source drawer, mobile
+  bottom navigation, and responsive fixed composer. Updated the frontend version to `0.11.0`.
+- Added ADR-020 and updated README, architecture, and AI design documentation.
+
+### Verification
+
+- Frontend ESLint passed.
+- Strict TypeScript application and test typechecks passed.
+- Frontend passed 18 tests across six suites. Tests cover the fixed Gen-UI allowlist, malicious and
+  malformed payload rejection, Recharts primitives, SSE validation, every route-dependent streaming
+  state, operational-only activity, readiness/source schema validation, trusted timestamp seeking,
+  and mobile/tablet/desktop responsive layout contracts.
+- The Vite production build passed with 2,347 transformed modules and charting isolated into a
+  dedicated chunk.
+- Headless Chrome visual checks passed at desktop 1440×1000 and tablet 900×1100. Chrome DevTools
+  device metrics verified the mobile layout at a true 390×844 CSS viewport with
+  `innerWidth=390`, `scrollWidth=390`, and no horizontal overflow.
+
+### Resolved During Verification
+
+- The first sandboxed Recharts installation could not reach the npm registry and returned EACCES.
+  The required installation was rerun with approved network access; 39 packages were added and npm
+  reported zero vulnerabilities.
+- The first strict typecheck found a union-correlation issue in the generic upload configuration and
+  one exact-optional video URL. Upload dispatch now narrows explicitly by kind and optional props are
+  conditionally spread.
+- React's effect lint rejected synchronous state-setting helpers called directly by mount effects.
+  Initial readiness and library loads now update only from asynchronous completion callbacks with
+  unmount guards.
+- An initial CLI mobile screenshot was cropped because headless Chrome enforces a 512px minimum CSS
+  viewport while writing a 390px bitmap. A DevTools device-metrics run used a true 390px viewport and
+  proved the document has no horizontal overflow.
+- The first chart-enabled build warned that the combined application bundle exceeded 500 kB.
+  Recharts is now emitted as a dedicated static chunk; no unsafe dynamic model-selected import was
+  introduced.
+
+### Deferred by Design
+
+- Production signed object-storage upload authorization and durable browser-accessible video URLs
+- Authentication, persistent conversation history, saved evaluations, and SSE replay/resumption
+- Provider-native pre-guardrail token streaming, which remains prohibited by the current safety
+  boundary; Phase 10 continues to chunk only the final validated response
+- Full browser end-to-end tests against simultaneously running gateway and AI services; component,
+  protocol, build, and responsive visual tests are local and deterministic
+
+## Phase 12 — Free-Tier Persistence and Reconstructable Retrieval
+
+**Date:** 2026-07-09
+**Status:** Complete
+
+### Delivered
+
+- Added shared `MetadataRepository`, `ObjectStorageProvider`, and `VectorStore` interfaces with
+  local/in-memory test alternatives and domain adapters for existing document, video, and dataset
+  services.
+- Added `MongoMetadataRepository` using discriminator-indexed records for source metadata, upload
+  intents, document chunks, and video segments. Reconstruction records retain text, provenance,
+  original vectors, embedding provider/model, checksum, and timestamps.
+- Added multi-namespace `ChromaVectorStore`. Startup now compares exact durable and active IDs and
+  clears/rebuilds stale document or video namespaces from persisted vectors without provider calls.
+- Moved reconstruction into an application-lifespan background thread. `/health` remains a quick
+  liveness endpoint; `/ready` reports per-namespace starting/rebuilding/ready/failed state and uses
+  HTTP 503 until retrieval is usable.
+- Added private-bucket `SupabaseObjectStorage` with bounded timeouts/downloads and server-only
+  authorization, plus fake and safe-root local filesystem adapters.
+- Added strict presign and stored-object ingestion APIs. Upload paths are server-generated, intents
+  are expiring and one-time, exact object size is verified, and only signed URL/path/expiry reach
+  the browser.
+- Added Zod-only JSON control proxy routes to the gateway. PDF/video bytes never enter Express; the
+  frontend PUTs them directly to the signed Supabase URL before submitting the object path.
+- Kept direct multipart PDF/video/CSV behavior for local development. Production CSV upload remains
+  intentionally unavailable because Phase 12 scopes durable objects to PDF/video.
+- Added typed configuration for MongoDB, Supabase, local adapters, timeouts, bucket name, and upload
+  TTL. Production configuration fails closed unless Mongo and Supabase are selected and credentialed.
+- Updated versions to `0.12.0`, architecture/API/AI-design documentation, README operations, and
+  ADR-021.
+
+### Verification
+
+- AI-service passed all 96 tests in Mock mode, including startup index recovery, one-time signed
+  object ingestion, cloud-free Mongo record persistence, and credential-safe Supabase signing.
+- Ruff passed across application and tests; strict mypy passed across 111 application files.
+- Gateway ESLint/typecheck passed, all 9 integration tests passed, and its production build passed.
+- Frontend ESLint/typecheck passed, all 18 protocol/workspace tests passed, and its Vite production
+  build passed (2,347 modules transformed).
+
+### Resolved During Verification
+
+- Default Ruff/pytest/mypy and TypeScript/Vite output directories were not writable in the managed
+  sandbox. Ruff/pytest caches were disabled, mypy used a permitted temp cache, and generated web
+  test/build outputs were rerun with approved filesystem access.
+- The first strict frontend typecheck rejected a union of document/video Zod response schemas. The
+  stored-object branches now narrow before selecting their response schema.
+- The first Phase 12 backend test omitted required inference operation/retry metadata, and Mongo's
+  BSON millisecond precision made whole-object datetime equality unsuitable. The fixture now uses
+  the complete typed metadata and verifies durable semantic fields explicitly.
+
+### Deferred by Design
+
+- Automated Supabase bucket/CORS creation and MongoDB Atlas project/network provisioning
+- Durable conversations, saved evaluations, authentication/tenant ownership, and distributed jobs
+- Background ingestion queues and browser-accessible signed download/playback URLs
+- Cleanup policies for abandoned upload intents and orphaned or superseded source objects
+
+## Phase 13 — Internal AI Evaluation and Observability
+
+**Date:** 2026-07-10
+**Status:** Complete
+
+### Delivered
+
+- Added `sample-data/evaluations/synapse-evaluation.v1.json`, a strict version-controlled benchmark
+  covering four graph routes/tools, grounded/direct generation, prompt injection, and unsupported
+  claims while reusing the page-labeled Phase 5 retrieval dataset and deterministic PDF/CSV assets.
+- Added `python -m app.evaluation.run`. Mock mode is the default and makes no network calls;
+  configured-provider evaluation requires an explicit `--provider configured` opt-in.
+- Extended retrieval evaluation with per-mode mean and total wall-clock latency while retaining
+  Recall@K and MRR comparison for vector-only and hybrid retrieval.
+- Added typed aggregate models for routing/tool accuracy, groundedness, citation coverage, a
+  deterministic expected-term relevance proxy, injection/unsupported-claim accuracy, block/rewrite
+  rates, stage latency, provider calls, and estimated token usage.
+- Added graph instrumentation through an optional state observer. It records transition timings and
+  existing safe inference metadata without changing graph behavior or serializing state snapshots,
+  prompts, retrieved context, draft answers, or hidden reasoning.
+- Added `EvaluationSummaryRepository` with in-memory tests, atomic local JSON snapshots, and a
+  dedicated MongoDB collection. Summaries include run ID, UTC timestamp, provider/model identifier,
+  retrieval modes, dataset checksum, complete retrieval configuration, deterministic seed, and a
+  SHA-256 configuration fingerprint.
+- Added `GET /api/v1/evaluations/summaries`, with bounded newest-first results and a strict response
+  envelope. Evaluation execution intentionally remains CLI-only so an unauthenticated endpoint
+  cannot spend provider quota.
+- Added a responsive Evaluation & Observability frontend view with strict Zod validation and useful
+  retrieval, routing, generation, guardrail, latency, provider-call, and token metrics.
+- Updated service/frontend/root versions to `0.13.0`, configuration examples, architecture, AI
+  design, API contracts, README operations, and ADR-022.
+
+### Evaluation Result
+
+- Run ID: `eval_048c9ddb649d4434956fa8790c17c1cb`
+- Provider/model: `mock` / `mock-chat-v1`
+- Dataset checksum: `a4c8cefd06f2bce617220cf42a92a32903559a74158328d0c82a12eab35453fa`
+- Recall@3 and MRR: vector-only `1.0 / 1.0`; hybrid `1.0 / 1.0`
+- Mean retrieval latency: vector-only `1.324 ms`; hybrid `1.957 ms`
+- Route accuracy / tool-selection accuracy: `1.0 / 1.0`
+- Groundedness / citation coverage / relevance proxy: `0.9488 / 1.0 / 1.0`
+- Injection detection / unsupported-claim detection: `1.0 / 1.0`
+- Block rate / rewrite rate on the five guard cases: `0.4 / 0.2`
+- Six graph invocations: `94.032 ms` aggregate, 15 provider calls, 354 estimated tokens. Timing is
+  environment-dependent and is not treated as a reproducible correctness assertion.
+
+### Verification
+
+- AI service passed all 101 tests in Mock mode; the focused Phase 13 suite passed all 5 tests.
+- Ruff passed across application and tests; strict mypy passed across 116 application files.
+- Frontend ESLint and strict TypeScript passed. All 20 tests across seven suites passed.
+- The Vite production build passed with 2,348 transformed modules and a separate Recharts chunk.
+
+### Resolved During Verification
+
+- The first benchmark document query lacked an explicit document signal and correctly routed as a
+  direct question under the deterministic router. The labeled case now mentions the policy, making
+  its intended document-tool expectation explicit rather than changing routing logic for a test.
+- Adding retrieval configuration fields initially made the already-created local summary snapshot
+  fail strict loading. Safe defaults now migrate those early Phase 13 aggregate records while all
+  new summaries store a dataset checksum and full retrieval settings.
+- The first frontend lint run rejected mount-time invocation of a state-setting callback. Initial
+  loading now updates state only from asynchronous completion callbacks with an unmount guard.
+- Managed filesystem permissions blocked default cache/generated paths for mypy, frontend tests,
+  and Vite. Ruff/pytest caches were disabled, mypy used a permitted temporary cache, and frontend
+  generated outputs were rerun with approved access.
+
+### Deferred by Design
+
+- Authenticated remote evaluation scheduling, queues, cancellation, and per-run detail endpoints
+- Per-case prompt/answer retention; Phase 13 persists aggregate summaries only to minimize leakage
+- Model-judge scoring and hosted traces; current generation metrics are deterministic proxies plus
+  the existing Sentinel scores
+- Distributed tracing/export, production dashboards, alerting, and latency percentile aggregation
+
+## Phase 14 — Production-Readiness and Security Hardening
+
+**Date:** 2026-07-12
+**Status:** Complete
+
+### Review Scope
+
+- Reviewed HTTP validation, exact CORS policy, security headers, rate limiting, request/provider/SSE
+  timeouts, disconnect cleanup, normalized exceptions, structured logging, and secret handling.
+- Reviewed PDF/MP4/CSV MIME and signature validation, upload/page/duration/row limits, filenames,
+  object references, local path containment, signed-upload controls, and FFmpeg subprocess safety.
+- Reviewed direct and indirect prompt injection boundaries, LangGraph rewrite termination, citation
+  provenance, Gen-UI schemas/registry, deterministic CSV operations, Mistral 429 handling, and the
+  MongoDB/Supabase/Chroma readiness and reconstruction paths.
+- Searched tracked and untracked repository files for high-confidence key, connection-string, and
+  private-key patterns without printing matched values. Verified real `.env` files are ignored and
+  not tracked; deliberate fake secret strings remain in adversarial tests.
+
+### Defects Fixed
+
+- Added exact configurable FastAPI CORS, production HTTPS-origin enforcement, security headers,
+  production API-doc disabling, safe request/correlation IDs, and body-free structured access logs.
+- Replaced FastAPI's input-echoing validation response and generic exception behavior with stable,
+  credential-safe error envelopes and safe error-type logging.
+- Expanded gateway rate limiting from chat alone to every `/api/v1` control route. Incoming
+  correlation IDs now use a bounded allowlist; all responses receive generated request IDs.
+- Made gateway JSON proxying disconnect-aware and timeout-aware, return 504 for timeouts, require a
+  JSON success content type, and stop relaying untrusted upstream error bodies.
+- Replaced permissive origin values with plain-origin validation and exact CORS callbacks. Production
+  gateway and AI URLs/origins now require HTTPS, and Supabase URLs reject credentials and non-HTTPS
+  schemes.
+- Hardened signed-upload and stored-object filenames against separators, dot paths, surrounding
+  whitespace, length abuse, ASCII/Unicode control and formatting characters, extension/MIME
+  mismatch, and arbitrary object path shapes.
+- Ensured failed video writes/probes/duration checks/keyframe extraction/embedding/indexing/metadata
+  persistence remove staged artifacts; cleanup failure emits a safe structured warning.
+- Marked retrieved content explicitly as untrusted evidence rather than model instructions.
+- Added ignore rules for common private-key/certificate/credential files and the observed local
+  `password.txt`. The file was not read, changed, or deleted.
+- Updated package/application versions to `0.14.0`, removed unstructured Morgan logging, and recorded
+  the boundary decision in ADR-023.
+
+### Tests Added
+
+- AI hardening tests cover exact CORS and headers, safe IDs, non-echoing validation failures,
+  production HTTPS/docs policy, normalized unexpected errors, filename/path/control rejection,
+  Mistral timeout propagation, no retry on 429, ignore rules, untrusted-evidence prompting, and
+  failed-video artifact cleanup.
+- Gateway tests cover production URL/origin configuration, exact CORS rejection, MIME/extension and
+  path/control filename rejection, unsafe correlation IDs, API-wide rate limiting, JSON proxy 504,
+  and suppression of upstream error details.
+
+### Verification
+
+- Frontend ESLint and strict TypeScript passed. All 20 tests across seven suites passed. The Vite
+  production build passed with 2,348 modules and separate application/chart chunks.
+- Gateway ESLint and strict TypeScript passed. All 16 integration tests across four suites passed.
+  The TypeScript production build passed.
+- AI-service Ruff and strict mypy passed. All 109 tests passed in Mock mode; one third-party Chroma
+  deprecation warning was reported. `pip check` reported no broken requirements.
+- `npm audit --omit=dev --offline` reported zero production dependency vulnerabilities from the
+  installed lockfile metadata. This offline result is not a live registry advisory refresh.
+- The tracked-file high-confidence secret scan found no likely live key, credentialed MongoDB URI,
+  or private-key block. Filename-only workspace scanning matched only deliberate adversarial test
+  fixtures. Ignore verification confirmed `.env` and `ai-service/.env` are ignored and not tracked.
+
+### Resolved During Verification
+
+- The first gateway test run exposed that passing a string to the CORS package returned the configured
+  origin even for an attacker origin. The gateway now uses an exact callback and the regression test
+  passes.
+- The first gateway lint run rejected control-code regex syntax. The validator now checks explicit
+  Unicode code points/categories, improving coverage while satisfying lint.
+- The default mypy cache was not writable in the managed workspace and produced a misleading internal
+  error wrapper. Re-running with a permitted temporary cache completed successfully.
+- The first parallel frontend build observation ended while Vite was still transforming modules; a
+  direct rerun completed and passed.
+
+### Remaining Limitations
+
+- Authentication, tenant authorization, distributed edge rate limiting, centralized logs/alerts,
+  malware scanning/content disarm, isolated media workers, and authenticated upload ownership are
+  not implemented.
+- Live Mistral, MongoDB Atlas, Supabase, Render restart, CDN buffering, and browser-to-storage failure
+  drills were not executed; automated tests use MockProvider and local/fake repositories.
+- Prompt injection, unsupported-claim, relevance, and secret-pattern checks are heuristic and cannot
+  prove semantic safety or grounding.
+- Chroma reconstruction has no distributed lock or automatic retry after a failed startup rebuild;
+  free-instance cold starts remain corpus- and platform-dependent.
+- The root `password.txt` remains on the local filesystem. It is now ignored, but the owner must
+  decide whether it contains sensitive material and should be securely removed.
+
+## Phase 15 — Zero-Cost Portfolio Deployment Preparation
+
+**Date:** 2026-07-13
+**Status:** Complete
+
+### Implemented
+
+- Added separate Vercel descriptors for the Vite frontend and Express gateway. The gateway now
+  default-exports its application from `src/index.ts` while the local listener reuses that instance.
+- Corrected the production frontend topology so browser control requests use only
+  `VITE_GATEWAY_URL`; the Vite-only `/ai-local` target can no longer leak into production routing.
+- Added a fixed gateway allowlist for AI readiness, provider information, knowledge listings, and
+  evaluation summaries. Evaluation limits are validated and there is still no generic/raw binary
+  proxy.
+- Added bounded, abortable, increasing readiness polling and the explicit
+  “Waking Synapse AI service...” state for Render cold starts.
+- Corrected browser-to-Supabase signed uploads to use the expected signed multipart PUT shape while
+  preserving the browser-to-storage data path.
+- Added a Python 3.11 non-root Render Docker image with FFmpeg, a Render Blueprint, health checking,
+  environment declarations, and a `$PORT`-driven uvicorn command.
+- Added `SUPABASE_BUCKET` as the deployment environment contract while preserving the prior
+  storage-bucket alias internally.
+- Added `docs/DEPLOYMENT.md` with exact Atlas, Supabase, Render, Vercel gateway, and Vercel frontend
+  setup; environment tables; production verification; troubleshooting; and honest limitations.
+- Updated architecture/API documentation, README status, package versions to `0.15.0`, and recorded
+  the deployment boundary in ADR-024.
+
+### Tests Added or Stabilized
+
+- Frontend cold-start tests prove readiness retries are bounded and stop on success.
+- Gateway deployment tests prove allowlisted JSON forwarding, exact CORS, request-ID propagation,
+  bounded evaluation queries, and absence of a generic binary route.
+- AI configuration testing proves the documented `SUPABASE_BUCKET` environment name is accepted.
+- The existing gateway disconnect test now waits 250 ms before client abort, avoiding a false failure
+  on slow hosts while still proving that the upstream signal is cancelled.
+
+### Verification
+
+- Frontend ESLint and strict TypeScript passed. All 22 tests across eight suites passed. The Vite
+  production build passed with 2,348 transformed modules and separate application/chart chunks.
+- Gateway ESLint and strict TypeScript passed. All 20 tests across five suites passed, including SSE
+  streaming/disconnect and signed-upload controls. The TypeScript production build passed.
+- AI-service Ruff and strict mypy passed across 118 source files. The full Mock/local suite passed
+  (110 tests) with one third-party Chroma deprecation warning. `pip check` found no broken
+  requirements.
+- The `synapse-ai-service` version 0.15.0 wheel built successfully using the declared PEP 517
+  configuration.
+- Both Vercel JSON files and the Render YAML descriptor parsed successfully.
+- Offline npm production audit reported zero vulnerabilities from installed lockfile metadata; this
+  was not a live advisory refresh.
+- A filename-only high-confidence secret scan found no private-key block, credentialed Mongo URI,
+  likely API key, or JWT in repository files. The rebuilt frontend bundle contained none of the
+  Mistral, MongoDB, or Supabase service-role variable identifiers. Real `.env` files remain ignored
+  and untracked.
+
+### Verification Limitations
+
+- The Docker CLI could not connect to a responsive local Docker Desktop engine. A production image
+  build was attempted and cancelled after no engine output; the Dockerfile was not claimed as
+  locally built. Render still needs to perform the first real container build.
+- No live Mistral, Atlas, Supabase, Render, or Vercel resources were created or exercised.
+- Provider free-plan quotas and dashboard labels can change and must be reconfirmed at deployment.
+- Production CSV upload remains local-only; Phase 15 signed object flow covers the required PDF and
+  MP4 assets.

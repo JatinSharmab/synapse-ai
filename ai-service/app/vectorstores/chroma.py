@@ -90,3 +90,12 @@ class ChromaDocumentVectorStore(DocumentVectorStore):
 
     def count(self) -> int:
         return int(self._collection.count())
+
+    def list_ids(self) -> set[str]:
+        result = self._collection.get(include=[])
+        return set(result.get("ids") or [])
+
+    def clear(self) -> None:
+        identifiers = list(self.list_ids())
+        if identifiers:
+            self._collection.delete(ids=identifiers)

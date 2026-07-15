@@ -9,7 +9,9 @@ from app.services.video_media import FFmpegMediaProcessor, VideoMediaProcessor
 from app.services.video_rag import VideoRAGService
 from app.transcription.base import TranscriptionProvider
 from app.transcription.factory import create_transcription_provider
-from app.vectorstores.videos import ChromaVideoVectorStore
+from app.vectorstores.adapters import VideoVectorStoreAdapter
+from app.vectorstores.base import InMemoryVectorStore
+from app.vectorstores.videos import VideoVectorStore
 
 
 def create_video_rag_service(
@@ -19,17 +21,14 @@ def create_video_rag_service(
     media_processor: VideoMediaProcessor | None = None,
     transcription_provider: TranscriptionProvider | None = None,
     repository: VideoRepository | None = None,
+    vector_store: VideoVectorStore | None = None,
 ) -> VideoRAGService:
     if settings.app_env == "test":
         active_repository = repository or InMemoryVideoRepository()
-        persist_path = None
         storage_root = Path(gettempdir()) / "synapse-video-tests" / uuid4().hex
-        collection_name = f"phase6_test_{uuid4().hex}"
     else:
         active_repository = repository or JsonVideoRepository(settings.video_metadata_path)
-        persist_path = settings.chroma_persist_path
         storage_root = settings.video_storage_path
-        collection_name = settings.chroma_video_collection
 
     active_media_processor = media_processor or FFmpegMediaProcessor(
         storage_root=storage_root,
@@ -41,10 +40,7 @@ def create_video_rag_service(
         provider=provider,
         transcription_provider=(transcription_provider or create_transcription_provider(settings)),
         repository=active_repository,
-        vector_store=ChromaVideoVectorStore(
-            collection_name=collection_name,
-            persist_path=persist_path,
-        ),
+        vector_store=vector_store or VideoVectorStoreAdapter(InMemoryVectorStore()),
         media_processor=active_media_processor,
         storage_root=storage_root,
         max_video_size_bytes=settings.max_video_size_mb * 1024 * 1024,
@@ -55,5 +51,4 @@ def create_video_rag_service(
         transcription_enabled=settings.video_transcription_enabled,
         minimum_similarity_score=settings.video_min_similarity_score,
     )
-    service.rebuild_index_if_needed()
     return service

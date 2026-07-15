@@ -1,3 +1,4 @@
+from collections.abc import Callable, Iterator
 from typing import cast
 from uuid import uuid4
 
@@ -35,22 +36,63 @@ class SynapseOrchestrator:
         )
 
     def invoke(self, *, message: str, thread_id: str) -> ChatStateSummary:
-        initial_state = create_initial_state(
+        return self.invoke_with_observer(message=message, thread_id=thread_id)
+
+    def invoke_with_observer(
+        self,
+        *,
+        message: str,
+        thread_id: str,
+        observer: Callable[[SynapseState], None] | None = None,
+    ) -> ChatStateSummary:
+        """Invoke the graph while optionally exposing safe state transitions to instrumentation."""
+
+        states = self.stream_states(
+            message=message,
+            thread_id=thread_id,
             request_id=str(uuid4()),
+        )
+        try:
+            result = next(states)
+        except StopIteration as error:
+            raise RuntimeError("Graph terminated without returning state.") from error
+        if observer is not None:
+            observer(result)
+        for snapshot in states:
+            result = snapshot
+            if observer is not None:
+                observer(result)
+        return self._summary_from_state(result)
+
+    def stream_states(
+        self,
+        *,
+        message: str,
+        thread_id: str,
+        request_id: str,
+    ) -> Iterator[SynapseState]:
+        initial_state = create_initial_state(
+            request_id=request_id,
             thread_id=thread_id,
             user_query=message,
         )
-        result = cast(
-            SynapseState,
-            self._graph.invoke(initial_state, {"recursion_limit": GRAPH_RECURSION_LIMIT}),
-        )
+        for snapshot in self._graph.stream(
+            initial_state,
+            {"recursion_limit": GRAPH_RECURSION_LIMIT},
+            stream_mode="values",
+        ):
+            yield cast(SynapseState, snapshot)
 
+    @staticmethod
+    def _summary_from_state(result: SynapseState) -> ChatStateSummary:
         intent = result["intent"]
         route = result["route"]
         final_response = result["final_response"]
         guardrail_result = result["guardrail_result"]
-        if intent is None or route is None or final_response is None or guardrail_result is None:
+        if final_response is None or guardrail_result is None:
             raise RuntimeError("Graph terminated without a complete safe state summary.")
+        if guardrail_result.decision.value != "block" and (intent is None or route is None):
+            raise RuntimeError("An unblocked graph run terminated before routing completed.")
 
         return ChatStateSummary(
             request_id=result["request_id"],

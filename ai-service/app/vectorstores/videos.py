@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,27 @@ class VideoVectorMatch(BaseModel):
     distance: float = Field(ge=0)
 
 
-class ChromaVideoVectorStore:
+class VideoVectorStore(ABC):
+    @abstractmethod
+    def upsert(self, segments: list[TemporalSegment], embeddings: list[list[float]]) -> None: ...
+
+    @abstractmethod
+    def query(self, embedding: list[float], *, top_k: int) -> list[VideoVectorMatch]: ...
+
+    @abstractmethod
+    def delete_video(self, video_id: str) -> None: ...
+
+    @abstractmethod
+    def count(self) -> int: ...
+
+    @abstractmethod
+    def list_ids(self) -> set[str]: ...
+
+    @abstractmethod
+    def clear(self) -> None: ...
+
+
+class ChromaVideoVectorStore(VideoVectorStore):
     def __init__(self, *, collection_name: str, persist_path: Path | None) -> None:
         settings = ChromaSettings(anonymized_telemetry=False)
         self._client: ClientAPI
@@ -77,3 +98,12 @@ class ChromaVideoVectorStore:
 
     def count(self) -> int:
         return int(self._collection.count())
+
+    def list_ids(self) -> set[str]:
+        result = self._collection.get(include=[])
+        return set(result.get("ids") or [])
+
+    def clear(self) -> None:
+        identifiers = list(self.list_ids())
+        if identifiers:
+            self._collection.delete(ids=identifiers)

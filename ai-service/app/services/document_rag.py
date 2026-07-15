@@ -37,6 +37,13 @@ class DocumentSearchExecution:
     debug: RetrievalDebug | None = None
 
 
+@dataclass(frozen=True)
+class IndexSyncResult:
+    durable_count: int
+    indexed_count: int
+    rebuilt: bool
+
+
 class DocumentRetriever(Protocol):
     def search(
         self,
@@ -140,7 +147,11 @@ class DocumentRAGService:
             self._vector_store.upsert(chunks, embeddings)
 
         stored_chunks = [
-            StoredDocumentChunk(chunk=chunk, embedding=embedding)
+            StoredDocumentChunk(
+                chunk=chunk,
+                embedding=embedding,
+                embedding_metadata=embedding_result.metadata,
+            )
             for chunk, embedding in zip(chunks, embeddings, strict=True)
         ]
         try:
@@ -345,18 +356,21 @@ class DocumentRAGService:
             for rank, (chunk, score) in enumerate(candidates, start=1)
         ]
 
-    def rebuild_index_if_needed(self) -> None:
+    def rebuild_index_if_needed(self) -> IndexSyncResult:
         stored_chunks = [
             chunk
             for document in self._repository.list_documents()
             for chunk in self._repository.get_chunks(document.document_id)
         ]
-        if self._vector_store.count() == len(stored_chunks):
-            return
+        durable_ids = {item.chunk.chunk_id for item in stored_chunks}
+        if self._vector_store.list_ids() == durable_ids:
+            return IndexSyncResult(len(stored_chunks), len(durable_ids), False)
+        self._vector_store.clear()
         self._vector_store.upsert(
             [item.chunk for item in stored_chunks],
             [item.embedding for item in stored_chunks],
         )
+        return IndexSyncResult(len(stored_chunks), self._vector_store.count(), True)
 
     @staticmethod
     def _chunk_id(

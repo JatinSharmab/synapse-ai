@@ -26,14 +26,13 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+        sans: ["Inter Variable", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "SFMono-Regular", "ui-monospace", "monospace"],
       },
       boxShadow: {
-        panel: "0 18px 60px rgba(2, 6, 23, 0.32)",
+        panel: "0 18px 55px rgba(0, 0, 0, 0.2)",
       },
     },
   },
   plugins: [],
 } satisfies Config;
-

@@ -21,14 +21,26 @@ def test_chat_invoke_returns_safe_graph_state_summary() -> None:
     assert payload["thread_id"] == "thread-api"
     assert payload["route"] == "document_search"
     assert payload["trace"] == [
+        "guardrail.input=pass",
         "router.selected=document_search",
         "provider.router=mock",
         "tool=document_search",
         "retrieval.count=0",
         "synthesizer=draft",
         "provider.synthesizer=mock",
+        "guardrail.grounding=pass",
+        "guardrail.output=pass",
         "sentinel=approve",
     ]
+    assert payload["guardrail_result"] == {
+        "decision": "approve",
+        "groundedness_score": 1.0,
+        "citation_coverage": 1.0,
+        "prompt_injection_detected": False,
+        "schema_valid": True,
+        "reasons": ["GUARDRAILS_PASSED"],
+        "rewrite_required": False,
+    }
     assert [item["operation"] for item in payload["inference_metadata"]] == [
         "generate_structured",
         "generate",

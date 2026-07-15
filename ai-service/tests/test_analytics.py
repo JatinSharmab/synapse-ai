@@ -351,7 +351,12 @@ def test_graph_uses_structured_plan_and_deterministic_numeric_summary() -> None:
     )
     assert "analytics.status=completed" in payload["trace"]
     assert "synthesizer.mode=deterministic_analytics" in payload["trace"]
-    assert provider.call_history == ["generate_structured", "generate_structured"]
+    assert provider.call_history == [
+        "generate_structured",
+        "generate_structured",
+        "generate_structured",
+    ]
+    assert payload["genui"][0]["type"] == "bar_chart"
 
 
 def test_dataset_delete_removes_it_from_execution() -> None:

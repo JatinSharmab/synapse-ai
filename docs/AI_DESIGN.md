@@ -2,10 +2,19 @@
 
 ## Status
 
-This is the target AI design. Phase 7 adds constrained deterministic CSV analytics alongside the
-Phase 5 hybrid PDF and Phase 6 video pipelines. Structured provider output selects the route and a
-closed analytics plan, but application code calculates and renders every source-of-truth numeric
-result. Sentinel remains deterministic and bounded. Gen-UI remains future work.
+This is the target AI design. Through Phase 13, typed SSE delivery surrounds the layered Sentinel and existing hybrid PDF,
+video, analytics, and secure Gen-UI pipelines. Input, grounding, and output validations are distinct;
+provenance and security decisions remain deterministic wherever possible. A focused structured
+semantic classifier is reserved for ambiguous claim/evidence paraphrases. Sentinel remains bounded
+to one rewrite and never exposes prompts or private reasoning. Answer chunks are released only from
+the final guardrail-checked response. The Phase 11 frontend presents only this public operational
+state and keeps reasoning, routing policy, grounding logic, and calculations inside the AI service.
+
+Phase 12 makes retrieval persistence explicit: MongoDB is the durable authority for source records,
+provenance, text, and original embedding vectors; Chroma is a disposable active index. Application
+startup reconciles exact document-chunk and video-segment ID sets in a background thread. Rebuilds
+reuse persisted vectors and therefore do not spend embedding quota. Liveness never waits for Mongo
+or Chroma; readiness reports each retrieval namespace independently.
 
 ## Design Goals
 
@@ -250,7 +259,10 @@ come from the same deterministic executor regardless of whether the caller is HT
 
 ## Synthesizer
 
-The Synthesizer transforms tool results into a concise grounded answer and structured UI proposal. It receives only selected evidence and deterministic analytics results. Its structured output separates:
+The Synthesizer transforms tool results into a concise grounded answer. In Phase 8, it requests a
+separate `GenUIResponse` structured output only when a completed deterministic analytics result
+contains a material `recommended_visualization`. The text answer remains the deterministic
+analytics summary; UI generation cannot rewrite the source-of-truth number.
 
 - natural-language answer;
 - atomic citation references;
@@ -262,7 +274,7 @@ Instructions require it to abstain or qualify claims when evidence is insufficie
 
 ## Sentinel
 
-Sentinel is a layered pipeline, not a single unconstrained LLM call.
+Phase 9 implements Sentinel as a layered pipeline, not a single unconstrained LLM call.
 
 ### Input Checks
 
@@ -272,7 +284,9 @@ Sentinel is a layered pipeline, not a single unconstrained LLM call.
 - source authorization and tool-parameter validation;
 - dangerous or unsupported content patterns defined by product policy.
 
-Retrieved content is treated as quoted evidence, not as executable instruction. Deterministic findings can reject or sanitize a request before orchestration.
+Retrieved content is treated as quoted evidence, not as executable instruction. The implemented
+pre-router node rejects inputs over 4,000 characters plus deterministic prompt-injection,
+system-prompt extraction, and dangerous-tool instruction patterns before provider inference.
 
 ### Grounding Checks
 
@@ -284,7 +298,12 @@ Retrieved content is treated as quoted evidence, not as executable instruction. 
 - cited context is relevant to the associated claim;
 - unsupported claims are flagged.
 
-Existence, mapping, schema, and numerical checks are deterministic. A structured semantic judge may assess relevance or entailment only when rules cannot decide, and must be isolated behind `LLMProvider` for mockable tests.
+Existence, mapping, page/timestamp provenance, explicit citation/page references, analytics summary
+integrity, numeric contradictions, evidence coverage, and retrieval-score relevance are checked
+deterministically. Only an ambiguous lexical-support band invokes
+`generate_structured(SemanticGroundingJudgement)` through `LLMProvider`; its schema contains two
+booleans and an enumerated reason code, with no rationale or chain-of-thought field. Provider failure
+causes a conservative rewrite finding rather than bypassing grounding.
 
 ### Output Checks
 
@@ -297,7 +316,12 @@ Existence, mapping, schema, and numerical checks are deterministic. A structured
 
 ### Decisions and Bounded Rewrite
 
-Sentinel returns `approve`, `rewrite`, or `block` with machine-readable finding codes. `rewrite` is valid only when `rewrite_count == 0`; the graph increments the value before returning to Synthesizer. After one rewrite, Sentinel must approve, block, or issue a conservative insufficient-evidence response. It cannot loop again.
+Sentinel returns `GuardrailResult` with `decision`, `groundedness_score`, `citation_coverage`,
+`prompt_injection_detected`, `schema_valid`, `reasons`, and `rewrite_required`. `reasons` contains only
+machine-readable codes. `rewrite` is valid only when `rewrite_count == 0`; the graph sets the count
+to one before returning to Synthesizer. After one rewrite, the same failure blocks with
+`REWRITE_LIMIT_REACHED`. Critical injection, provenance, script/HTML, and secret-pattern findings
+block immediately. Invalid Gen-UI is removed while safe text is retained.
 
 ## Structured Generative UI
 
@@ -312,9 +336,35 @@ The model never produces React, JSX, JavaScript, or HTML. It proposes data match
 - `citation_list`
 - `video_evidence`
 
-Python validates the union with Pydantic v2 before an API response is emitted. Shared JSON examples/schema guide a matching Zod discriminated union in TypeScript. The frontend maps each valid type to a hard-coded, tested component registry. Unknown versions or types fail closed to a safe text representation or normalized error.
+Phase 8 implements protocol version `1.0` as equivalent Pydantic v2 and Zod discriminated unions.
+Both reject unknown fields and component types. Collections are bounded to five components, 100
+chart/table rows, 20 table fields, and smaller citation/video lists. Text lengths and identifiers
+are bounded; numbers must be finite. Chart configuration uses identifier-only keys and every row
+must contain the configured label and numeric keys. Tables require unique configured columns that
+exist in every row.
 
-Chart and table data should reference deterministic analytics outputs where numbers are involved. Labels, series counts, row counts, URLs, and text sizes are bounded. Content is rendered as text by default and never injected as raw HTML.
+Backend content validation recursively rejects HTML tags, script markup, `javascript:` schemes, and
+event-handler syntax. After Pydantic validation, analytics proposals must exactly equal the
+deterministic executor's `result_rows` and columns and must match its recommended component type.
+Any provider/schema/grounding failure records `genui=fallback_safe_text`, leaves `genui=[]`, and
+preserves the safe answer. Sentinel performs a final Pydantic validation before approval.
+
+The frontend validates the payload again with the shared Zod schema immediately before rendering.
+A frozen registry maps the eight literal discriminators to statically imported renderer functions.
+There is no arbitrary module name, dynamic `import()`, `eval`, `Function`, or
+`dangerouslySetInnerHTML`. A malformed payload renders only caller-supplied safe text through normal
+React interpolation.
+
+Phase 11 gives the fixed registry production-quality renderers. Bar, line, and pie components use
+statically imported Recharts primitives; metric, table, citation, video-evidence, and text components
+remain ordinary React components. The UI cannot select a module or code path outside the validated
+discriminator. Opening timestamped evidence seeks the controlled browser video element to the
+trusted segment `start_seconds`; absent local binary access is shown explicitly rather than replaced
+with synthetic media.
+
+Mock mode produces a valid structured proposal from the supplied deterministic result without
+network access. Tests additionally prove that forged chart values are discarded rather than
+serialized.
 
 ## Citation Grounding
 
@@ -330,6 +380,32 @@ Phase 5 adds `sample-data/evaluations/document-retrieval.v1.json`. Each case lab
 relevant filename, page, and global chunk index. The offline evaluator runs the same cases through
 `vector_only` and `hybrid` modes and reports Recall@K and Mean Reciprocal Rank. Run it from
 `ai-service/` with `python -m app.evaluation.cli`.
+
+Phase 13 adds `sample-data/evaluations/synapse-evaluation.v1.json` and the complete runner:
+
+```powershell
+cd ai-service
+.\.venv\Scripts\python.exe -m app.evaluation.run
+```
+
+The default suite is reproducible and network-free: it uses `MockProvider`, fixed versioned fixtures,
+deterministic embeddings/planning, seed `0`, and a SHA-256 configuration fingerprint. `--provider
+configured` is an explicit opt-in to the configured provider and may consume quota. Accuracy/quality
+metrics and the fingerprint are reproducible; wall-clock latency, UUID run ID, and UTC timestamp are
+observations and intentionally vary.
+
+The runner measures Recall@K, MRR, and mean retrieval latency for both `vector_only` and `hybrid`;
+route and selected-tool accuracy through the real LangGraph; deterministic term-coverage answer
+relevance plus Sentinel groundedness/citation coverage; and labeled input-injection and unsupported-
+claim detection. Block and rewrite rates use all guardrail benchmark cases as their denominator.
+System totals aggregate graph invocation latency by retrieval, generation, and guardrail stage, plus
+provider call count and provider-reported token estimates.
+
+`EvaluationSummaryRepository` has in-memory, atomic JSON, and MongoDB implementations. The runner
+selects MongoDB when `METADATA_BACKEND=mongo` and otherwise writes `EVALUATION_SUMMARY_PATH`.
+`GET /api/v1/evaluations/summaries` returns newest-first aggregate summaries only. No per-case query,
+answer, prompt, raw context, state snapshot, chain-of-thought, or hidden reasoning is stored or
+returned.
 
 ### Retrieval
 
@@ -370,15 +446,27 @@ Evaluation results must distinguish deterministic metrics from model-judge score
 
 ## AI Observability and Streaming
 
-SSE events will communicate lifecycle updates such as run accepted, route selected, tool started/completed, evidence available, answer delta, Sentinel decision, metrics summary, completion, and normalized error. Events contain safe operational data only. They must not reveal system prompts, hidden reasoning, secrets, or raw provider traces.
+Phase 10 implements SSE at `POST /api/v1/chat/stream`. LangGraph `values` snapshots remain internal;
+the adapter projects them into `request.started`, `route.selected`, `retrieval.started`,
+`retrieval.completed`, `generation.started`, `generation.token`, `genui.created`,
+`guardrail.completed`, `response.completed`, and `error`. Events carry request/correlation IDs and
+monotonic sequence numbers. They expose only route/tool names, candidate/citation counts, latency,
+validated components, final guardrail fields, trusted citations, and approved response text.
+
+The graph executes in a bounded worker so the async response can emit heartbeats and observe client
+disconnects. Total timeout, iterator close, worker stop requests, and normalized error events provide
+cleanup boundaries. Because `LLMProvider.generate()` currently returns complete text,
+`generation.token` chunks are derived from the final safe response rather than an unguarded provider
+stream. No draft, prompt, raw context, trace, chain-of-thought, or provider exception is emitted.
 
 Metrics link stages through correlation and run IDs. Provider calls record model identifier, duration, success/failure, retry count, and estimated token usage while respecting data-redaction rules.
 
 ## Provider Abstractions and Mock Mode
 
 `LLMProvider` exposes `generate()`, `generate_structured()`, `describe_image()`, and `embed()`.
-Phase 7 uses structured generation in Router and Analytics Planner, text generation for non-analytics
-Synthesizer routes, embeddings during
+Phase 10 uses structured generation in Router, Analytics Planner, conditional Gen-UI synthesis, and
+ambiguous semantic grounding only;
+text generation remains limited to non-analytics Synthesizer routes. Embeddings are used during
 document/video indexing and querying, and optional vision descriptions for selected video
 keyframes. BM25, RRF, document reranking, temporal alignment, and context selection remain local
 deterministic operations. Analytics arithmetic and graph output are also deterministic; provider

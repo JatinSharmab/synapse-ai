@@ -20,6 +20,13 @@ This is a lightweight architecture decision record (ADR) log. New architecture-c
 | ADR-012 | Provider-backed inference with explicit retry ownership | Accepted | 2026-06-24 |
 | ADR-013 | Provenance-first local PDF RAG with reconstructable vectors | Accepted | 2026-06-26 |
 | ADR-014 | Rank-fused local hybrid retrieval with debug-gated diagnostics | Accepted | 2026-06-28 |
+| ADR-015 | Bounded temporal video RAG with degradable enrichment | Accepted | 2026-06-30 |
+| ADR-016 | Closed typed analytics plans with deterministic numeric authority | Accepted | 2026-07-02 |
+| ADR-017 | Dual-validated data-only Gen-UI with a fixed renderer registry | Accepted | 2026-07-03 |
+| ADR-018 | Layered deterministic Sentinel with narrow semantic escalation | Accepted | 2026-07-05 |
+| ADR-019 | Post-guardrail typed SSE through a transport-only gateway | Accepted | 2026-07-06 |
+| ADR-020 | Answer-first responsive workspace with local-only binary ingestion | Accepted | 2026-07-08 |
+| ADR-021 | Durable Mongo vectors with disposable Chroma and direct Supabase uploads | Accepted | 2026-07-09 |
 
 ## ADR-001 — AI-First Monorepo with Strict Service Boundaries
 
@@ -229,6 +236,203 @@ same executor serves HTTP and LangGraph paths. The operation set intentionally l
 derived formulas, date semantics, and large-data execution. CSV persistence remains a
 single-process local JSON snapshot and should be replaced behind the repository interface for
 production scale.
+
+## ADR-017 — Dual-Validated Data-Only Gen-UI with a Fixed Renderer Registry
+
+**Status:** Accepted  
+**Context:** Phase 8 needs richer presentation without turning model output into executable frontend
+code. Arbitrary React/JSX/JavaScript/HTML, dynamic imports, unsafe markup, unconstrained component
+names, or model-modified analytics values would violate Synapse's execution and grounding
+boundaries. Backend validation alone is insufficient because clients must treat all transport data
+as untrusted.  
+**Decision:** Define protocol `1.0` as equivalent strict Pydantic and Zod discriminated unions for
+exactly `text`, `metric`, `bar_chart`, `line_chart`, `pie_chart`, `table`, `citation_list`, and
+`video_evidence`. Forbid unknown fields/types/versions and bound components, rows, fields, text,
+identifiers, citations, and video items. Require finite chart numbers, validate configured keys
+against every row, and recursively reject HTML/script/event-handler content. Request structured UI
+only for completed analytics results whose deterministic executor recommends a visualization.
+Require proposal data and columns to exactly equal the deterministic result; otherwise return an
+empty component list and preserve safe text. Validate again in Sentinel and with Zod immediately
+before rendering. Select renderers only from a frozen, statically imported registry and never use
+dynamic `import()`, `eval`, `Function`, or raw HTML injection.  
+**Alternatives:** Model-generated JSX/React and sandboxed JavaScript were rejected because they make
+untrusted text executable. A free-form JSON component name plus dynamic import was rejected because
+validation would still permit arbitrary module selection. Backend-only validation was rejected
+because transport and client code form a second trust boundary. Accepting model-generated analytics
+data after schema validation was rejected because type safety does not prove numerical grounding.  
+**Consequences:** Gen-UI is bounded, portable, testable offline, and fails closed at both boundaries.
+Adding a component requires explicit Pydantic, Zod, renderer-registry, grounding, and test changes.
+Phase 8 does not support custom code, arbitrary styling/actions, interactive callbacks, or
+model-defined layouts, and the frontend remains a development shell rather than a final dashboard.
+
+## ADR-018 — Layered Deterministic Sentinel with Narrow Semantic Escalation
+
+**Status:** Accepted  
+**Context:** Phase 9 must detect unsafe requests, fabricated provenance, unsupported claims, unsafe
+output, malformed Gen-UI, and accidental secrets without concentrating unrelated policies in one
+generic model prompt. Input rejection must happen before provider inference, while repairable answer
+failures need a bounded correction path.  
+**Decision:** Add a deterministic pre-router `InputGuard`, then run independent `GroundingGuard` and
+`OutputGuard` stages after synthesis. Citation IDs and document/video locators must map exactly to
+the current trusted context; explicit unknown citations/pages, missing evidence, analytics-result
+mismatches, numeric contradictions, low coverage, and irrelevant context become machine-readable
+findings. Output checks enforce length, Pydantic Gen-UI validation, markup/script rejection, and
+secret-pattern blocking. Malformed Gen-UI is removed while safe text survives. Only an ambiguous
+lexical-support band may call a dedicated structured semantic classifier with booleans and an enum;
+it has no rationale field. Block critical findings immediately, allow one rewrite for repairable
+findings, then terminate as blocked if the same safety requirement remains.  
+**Alternatives:** One all-purpose Sentinel prompt was rejected because it mixes security policy,
+provenance, schema validation, and semantic judgment in a hard-to-test black box. Model-only
+citation validation was rejected because authoritative identifiers and locations are exactly
+checkable. Unlimited or repeated repair was rejected because it can loop and increase cost.
+Silently redacting provenance failures was rejected because it can make unsupported answers appear
+grounded.  
+**Consequences:** Unsafe input incurs no provider call, most guardrail behavior is offline-testable,
+and public diagnostics contain only scores, booleans, and safe codes. Lexical coverage and secret
+patterns remain conservative heuristics with possible false positives or negatives. The optional
+semantic signal is not proof of truth and fails conservatively when unavailable.
+
+## ADR-019 — Post-Guardrail Typed SSE Through a Transport-Only Gateway
+
+**Status:** Accepted  
+**Context:** Phase 10 needs incremental browser communication and operational activity without
+exposing unsafe drafts, graph internals, private reasoning, or AI responsibilities in the gateway.
+POST input, long-running inference, client/upstream disconnects, proxy buffering, and serverless
+upload constraints require explicit transport boundaries.  
+**Decision:** Add a strict versioned SSE event union owned by FastAPI and mirror it with Zod for the
+React client. Project LangGraph state snapshots into safe lifecycle events, but release answer chunks
+only from the final Sentinel-checked response. Carry monotonic SSE IDs plus request/correlation IDs;
+use heartbeat comments, total timeouts, normalized errors, and disconnect-triggered iterator cleanup.
+Use streaming `fetch()` in React for the JSON POST. Keep Express transport-only: validate with Zod,
+generate/propagate IDs, rate-limit, apply security/CORS, enforce an upstream timeout, proxy SSE bytes,
+abort upstream on downstream close, and normalize transport failures. Register no binary upload
+proxy routes.  
+**Alternatives:** Native `EventSource` was rejected for this endpoint because it cannot send the
+required POST JSON body. Streaming provider drafts before Sentinel was rejected because unsafe or
+secret-like content could escape before output validation. Reimplementing orchestration or parsing
+semantic events in Express was rejected because the gateway must not own AI logic. Proxying PDF/MP4
+uploads was rejected because production Vercel functions are not the large-binary data path.  
+**Consequences:** The full React-to-AI path is typed, disconnect-aware, bounded, and testable in Mock
+mode. Provider-native token timing is not yet available: token events chunk the safe final response.
+The in-memory rate limiter is process-local, SSE replay is not persisted, and a blocking provider call
+may finish after disconnect before its worker can observe the stop request.
+
+## ADR-020 — Answer-First Responsive Workspace With Local-Only Binary Ingestion
+
+**Status:** Accepted  
+**Context:** Phase 11 must communicate an Enterprise AI Intelligence OS rather than a generic admin
+dashboard. Answers, trusted provenance, operational execution, structured visual output, and
+quality signals need a clear hierarchy across desktop, tablet, and mobile. The browser also needs a
+useful local ingestion experience without violating the rule that production binaries bypass the
+Express/Vercel gateway.  
+**Decision:** Make the AI workspace the default product surface and organize the desktop experience
+into navigation, answer, and evidence/execution zones. Collapse secondary panels below the answer on
+tablet and into explicit mobile navigation/drawers on phones. Derive streaming labels and quality
+values only from validated Phase 10 events. Keep the eight Gen-UI discriminators in a frozen static
+registry and implement chart types with statically imported Recharts primitives. Seek video evidence
+to repository-derived `start_seconds`. Use a Vite-only `/ai-local` proxy for bounded local FastAPI
+health, listing, and multipart upload; disable direct upload in production builds.  
+**Alternatives:** A metric-card admin dashboard was rejected because it makes AI interaction
+secondary. Rendering invented demo analytics was rejected because the UI must not fabricate source
+or quality data. Proxying binaries through Express was rejected by the production upload boundary.
+Dynamic Gen-UI imports and model-authored markup remained prohibited.  
+**Consequences:** The portfolio now demonstrates an answer-first multimodal workflow with honest
+empty, loading, cold-start, partial, and unavailable states. Local uploads work without weakening the
+gateway. Production still requires a future signed object-storage control flow. Recharts adds bundle
+weight, so it is emitted as a dedicated build chunk; uploaded video playback URLs last only for the
+current browser session because the local API exposes metadata rather than stored binaries.
+
+## ADR-021 — Durable Mongo Vectors With Disposable Chroma and Direct Supabase Uploads
+
+**Status:** Accepted
+**Context:** Render free instances have ephemeral filesystems, while rebuilding embeddings after
+every cold start would consume provider quota and delay useful retrieval. Production PDF/video
+binaries also cannot safely traverse the Vercel gateway.
+**Decision:** Treat MongoDB metadata records as the durable source of truth for chunk and segment
+text, provenance, embedding vectors, provider/model identifiers, checksum, and timestamp. Treat
+Chroma as a disposable active index and reconcile exact identifier sets in a background startup
+task using stored vectors only. Keep `/health` independent and expose retrieval state at `/ready`.
+Store original assets in a private `synapse-assets` Supabase bucket. Let the browser request a
+short-lived signed URL through validated JSON, upload directly, then submit a server-generated
+object path under a one-time durable upload intent. Keep the service-role key server-only.
+**Alternatives:** Durable local Chroma on Render was rejected because the filesystem is ephemeral.
+Re-embedding on startup was rejected for cost, latency, and model-drift reasons. Gateway multipart
+proxying was rejected because serverless request limits make it unsuitable for large binaries.
+**Consequences:** A cold instance can answer liveness probes immediately and becomes retrieval-ready
+after reconstruction. Mongo storage grows with embedding vectors, the demo remains subject to free
+tier limits, and operators must configure Mongo/Supabase networking, a private bucket, and CORS.
+Tests use in-memory vectors, fake objects, and mongomock without cloud credentials.
+
+## ADR-022 — Aggregate, Self-Hosted Evaluation Summaries
+
+**Status:** Accepted  
+**Date:** 2026-07-10  
+**Context:** Phase 13 needs reproducible quality and latency evidence without paid observability
+SaaS, and public metrics must not become a path for leaking benchmark prompts, retrieved context,
+draft answers, system prompts, or private graph state. Remote evaluation execution would also let an
+unauthenticated caller consume configured-provider quota.  
+**Decision:** Run versioned fixtures explicitly through a local CLI, using Mock mode by default.
+Measure the real retrieval service, graph, and layered guards but persist only strict aggregate
+summaries with safe configuration/provider identity. Store them through a dedicated repository:
+MongoDB when configured, atomic JSON otherwise, and in memory for tests. Expose only bounded recent
+summaries over a read-only API; do not expose a remote run endpoint in this phase.  
+**Alternatives:** Hosted LangSmith, Arize, or W&B were rejected because the product must remain
+self-hosted and free-tier compatible. Persisting per-case prompts and answers was rejected because
+aggregate portfolio evidence does not justify the privacy and prompt-disclosure risk. Triggering
+configured-provider runs over HTTP was rejected until authentication and job controls exist.  
+**Consequences:** CI and local runs are network-free and comparable by dataset/configuration
+fingerprint, while Mongo supports durable production history. Timing values vary by machine and are
+observations rather than deterministic assertions; richer per-case diagnosis remains CLI-local and
+future authenticated scheduling is deferred.
+
+## ADR-023 — Defense-in-Depth at Both HTTP Boundaries
+
+**Status:** Accepted
+**Date:** 2026-07-12
+**Context:** The production-readiness review found that the gateway already applied core transport
+controls, but upload-control routes were outside its rate limiter, JSON proxy failures could relay
+upstream details, and direct FastAPI responses lacked a consistent CORS/header/logging boundary.
+Validation errors could also include rejected input through FastAPI's default response.
+**Decision:** Apply strict origin configuration and request/response hardening independently at the
+gateway and AI service. Rate-limit every gateway API control route, use bounded safe request IDs,
+emit body-free structured access/error events, abort JSON/SSE upstream work on timeout or disconnect,
+and normalize upstream and unexpected failures without relaying bodies or exception messages. Keep
+the gateway free of prompts and AI logic. Treat this application layer as defense in depth, not as a
+replacement for identity, edge limits, private networking, or centralized monitoring.
+**Alternatives:** Relying only on browser CORS and hosting defaults was rejected because FastAPI is
+used directly in local workflows and platform defaults vary. Returning complete validation/provider
+errors was rejected because submitted values and external response bodies can contain secrets.
+Adding authentication or distributed infrastructure was rejected as a major feature outside Phase
+14.
+**Consequences:** Both services now have explicit, testable failure and header behavior; upload
+controls share gateway abuse limits; diagnostics retain safe correlation metadata. Rate limiting is
+still per process, direct FastAPI exposure still needs an edge control, and production log transport,
+alerting, tenant authorization, and live cloud failure drills remain operator responsibilities.
+
+## ADR-024 — Split Serverless Edge From Reconstructable AI Compute
+
+**Status:** Accepted
+**Date:** 2026-07-13
+**Context:** The $0 portfolio target combines Vercel serverless projects with a stateful AI process
+that needs FFmpeg, background Chroma reconstruction, long-lived inference streams, and credentials
+for MongoDB, Supabase, and Mistral. A production Vite build also cannot rely on its development-only
+`/ai-local` proxy, and raw PDF/video bodies must not traverse Vercel Functions.
+**Decision:** Deploy frontend and gateway as separate Vercel projects, default-export the thin
+Express application from `src/index.ts`, and route production browser control traffic exclusively
+through `VITE_GATEWAY_URL`. Limit gateway JSON forwarding to explicit typed routes and keep SSE as
+the sole streamed route. Deploy FastAPI in a non-root Python 3.11 Docker image on Render with FFmpeg
+and a `$PORT`-driven command. Keep Atlas vectors durable, Chroma disposable, and Supabase uploads
+browser-direct through server-authorized signed URLs. Poll `/ready` with a bounded increasing delay
+and keep `/health` dependency-free.
+**Alternatives:** A single Vercel application was rejected because Python media/reconstruction work
+does not fit the thin serverless boundary. Direct browser calls to Render were rejected because
+they duplicate public control origins and bypass gateway transport controls. Proxying binary files
+through Vercel and treating Render disk as durable remained prohibited. Unbounded wake polling was
+rejected because it can amplify cold-start traffic.
+**Consequences:** The checked-in manifests can be connected to free provider projects without
+committing credentials or provisioning paid services. Operators must configure five providers,
+exact origins, and secrets manually. Cold starts, free quotas, per-instance rate limits, ephemeral
+indexes, and the absence of authentication remain explicit portfolio limitations.
 
 ## ADR Template
 

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models.datasets import DatasetColumn, DatasetColumnType
 from app.services.analytics_errors import DatasetMediaTypeError, DatasetValidationError
+from app.services.filenames import safe_upload_filename
 
 CSV_MEDIA_TYPES = frozenset({"text/csv", "application/csv", "text/plain"})
 
@@ -24,9 +25,10 @@ class CsvParser:
         self._max_columns = max_columns
 
     def parse(self, *, filename: str, content_type: str | None, data: bytes) -> ParsedDataset:
-        safe_filename = filename.replace("\\", "/").rsplit("/", maxsplit=1)[-1].strip()
-        if not safe_filename or len(safe_filename) > 255:
-            raise DatasetValidationError("The CSV filename is invalid.")
+        try:
+            safe_filename = safe_upload_filename(filename)
+        except ValueError as error:
+            raise DatasetValidationError("The CSV filename is invalid.") from error
         if not safe_filename.casefold().endswith(".csv"):
             raise DatasetMediaTypeError("The uploaded filename must use the .csv extension.")
         if content_type not in CSV_MEDIA_TYPES:

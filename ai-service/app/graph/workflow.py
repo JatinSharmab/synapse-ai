@@ -5,12 +5,13 @@ from app.agents.nodes import (
     data_analytics,
     direct_answer,
     document_search,
+    input_guard,
     router,
     sentinel,
     synthesizer,
     video_search,
 )
-from app.graph.routing import route_after_router, route_after_sentinel
+from app.graph.routing import route_after_input_guard, route_after_router, route_after_sentinel
 from app.models.domain import Route
 from app.models.state import SynapseState
 from app.providers.base import LLMProvider
@@ -29,6 +30,7 @@ def build_synapse_graph(
 ) -> CompiledStateGraph[SynapseState, None, SynapseState, SynapseState]:
     builder = StateGraph(SynapseState)
 
+    builder.add_node("input_guard", input_guard)
     builder.add_node("router", lambda state: router(state, provider))
     builder.add_node(
         Route.DOCUMENT_SEARCH.value,
@@ -48,9 +50,17 @@ def build_synapse_graph(
     )
     builder.add_node(Route.DIRECT_ANSWER.value, direct_answer)
     builder.add_node("synthesizer", lambda state: synthesizer(state, provider))
-    builder.add_node("sentinel", sentinel)
+    builder.add_node("sentinel", lambda state: sentinel(state, provider))
 
-    builder.add_edge(START, "router")
+    builder.add_edge(START, "input_guard")
+    builder.add_conditional_edges(
+        "input_guard",
+        route_after_input_guard,
+        {
+            "router": "router",
+            "end": END,
+        },
+    )
     builder.add_conditional_edges(
         "router",
         route_after_router,

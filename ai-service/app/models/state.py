@@ -6,13 +6,14 @@ from typing_extensions import TypedDict
 from app.models.domain import (
     Citation,
     ErrorRecord,
-    GenUIComponent,
     GuardrailResult,
     Intent,
     RetrievedContext,
     Route,
     ToolResult,
 )
+from app.schemas.analytics import AnalyticsResult
+from app.schemas.genui import GenUIComponent
 from app.schemas.inference import InferenceMetadata
 
 
@@ -20,6 +21,7 @@ class SynapseState(TypedDict):
     request_id: str
     thread_id: str
     user_query: str
+    input_guard_passed: bool
     intent: Intent | None
     route: Route | None
     retrieved_context: list[RetrievedContext]
@@ -28,6 +30,7 @@ class SynapseState(TypedDict):
     final_response: str | None
     citations: list[Citation]
     genui: list[GenUIComponent]
+    analytics_result: AnalyticsResult | None
     guardrail_result: GuardrailResult | None
     errors: Annotated[list[ErrorRecord], operator.add]
     inference_metadata: Annotated[list[InferenceMetadata], operator.add]
@@ -36,6 +39,7 @@ class SynapseState(TypedDict):
 
 
 class SynapseStateUpdate(TypedDict, total=False):
+    input_guard_passed: bool
     intent: Intent | None
     route: Route | None
     retrieved_context: list[RetrievedContext]
@@ -44,6 +48,7 @@ class SynapseStateUpdate(TypedDict, total=False):
     final_response: str | None
     citations: list[Citation]
     genui: list[GenUIComponent]
+    analytics_result: AnalyticsResult | None
     guardrail_result: GuardrailResult | None
     errors: list[ErrorRecord]
     inference_metadata: list[InferenceMetadata]
@@ -56,6 +61,7 @@ def create_initial_state(*, request_id: str, thread_id: str, user_query: str) ->
         "request_id": request_id,
         "thread_id": thread_id,
         "user_query": user_query,
+        "input_guard_passed": False,
         "intent": None,
         "route": None,
         "retrieved_context": [],
@@ -64,6 +70,7 @@ def create_initial_state(*, request_id: str, thread_id: str, user_query: str) ->
         "final_response": None,
         "citations": [],
         "genui": [],
+        "analytics_result": None,
         "guardrail_result": None,
         "errors": [],
         "inference_metadata": [],
