@@ -1104,3 +1104,51 @@ This log records completed project phases. Entries describe work actually perfor
 - Provider free-plan quotas and dashboard labels can change and must be reconfirmed at deployment.
 - Production CSV upload remains local-only; Phase 15 signed object flow covers the required PDF and
   MP4 assets.
+
+## Phase 16 - Portfolio and Interview Engineering Pass
+
+**Date:** 2026-07-20
+**Status:** Complete
+
+### Implemented
+
+- Replaced the root README with a code-grounded portfolio narrative covering the implemented
+  architecture, multimodal ingestion, LangGraph workflow, hybrid retrieval, PDF/video RAG,
+  constrained CSV analytics, structured Gen-UI, Sentinel, evaluation, observability, deployment,
+  setup, environment boundaries, tests, limitations, and a demo walkthrough.
+- Added Mermaid diagrams for the portfolio topology, multimodal ingestion, graph workflow, hybrid
+  retrieval pipeline, and SSE transport path.
+- Clearly separated the implemented **PORTFOLIO DEMO ARCHITECTURE** from a future
+  **PRODUCTION ENTERPRISE ARCHITECTURE**. Redis, workers/queues, managed vector infrastructure,
+  Kubernetes/autoscaling, centralized observability, enterprise SSO, and managed secrets are
+  described only as future evolution, never as deployed features.
+- Added `docs/INTERVIEW_GUIDE.md` with concise, code-based answers for LangGraph, hybrid retrieval,
+  ingestion, citations, temporal video retrieval, analytics safety, Gen-UI, Sentinel, SSE,
+  evaluation, deployment recovery, persistence, Supabase, scaling, and free-tier limitations.
+- Added `docs/PROJECT_VERIFICATION_CHECKLIST.md` for local quality checks, demo behavior,
+  evidence/evaluation, deployment configuration, and honest handoff review.
+
+### Final Verification
+
+- Root frontend/gateway workspace lint, typecheck, test, and build commands completed successfully.
+- Frontend direct test run passed all 22 tests across eight suites. A direct production build
+  completed after TypeScript checking and Vite transformation.
+- Gateway direct lint, typecheck, test, and build passed. All 20 tests across five suites passed,
+  including CORS, control-plane boundary, SSE proxy/disconnect, timeout, rate-limit, and upload
+  validation coverage.
+- AI-service Ruff passed. The full Mock/local pytest suite passed: 110 tests, with one third-party
+  Chroma deprecation warning. `pip check` reported no broken requirements.
+- The first `mypy app` invocation reported a mypy 1.20.2 internal error while using its default
+  cache. Re-running with a fresh repository-local cache passed: `Success: no issues found in 118
+  source files`. The temporary cache was removed afterward.
+- `python -m app.evaluation.run` completed in Mock mode. In that deterministic run, vector-only and
+  hybrid retrieval both recorded Recall@3 and MRR of 1.0 over three retrieval queries; routing and
+  tool-selection accuracy were 1.0 over four cases. These are small fixture results, not a broad
+  production-quality benchmark.
+
+### Final Verification Limitations
+
+- No live Mistral, Atlas, Supabase, Render, Vercel, or browser-to-storage deployment drill was run.
+- The current test environment reported one third-party Chroma deprecation warning.
+- The default mypy cache remains unreliable in this managed environment; use a clean explicit cache
+  directory if the internal error recurs.
