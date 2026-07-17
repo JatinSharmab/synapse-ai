@@ -178,6 +178,10 @@ See [deployment instructions](docs/DEPLOYMENT.md) and the [free-tier strategy](d
 
 The following are sensible future evolution items; they are **not implemented or deployed** here: Redis-backed distributed rate limiting/caching, dedicated ingestion workers and task queues, managed vector infrastructure, Kubernetes/autoscaling, centralized persistent observability, enterprise SSO/RBAC/tenant isolation, and managed secret storage. An enterprise implementation would decouple long-running ingestion into workers, add identity and audit controls, run a highly available vector/search layer, and scale gateway/API workloads independently.
 
+## Scaling strategy
+
+The current portfolio architecture is intentionally optimized for low-cost learning and demonstration, not high availability. A production evolution would first move expensive PDF/video work to isolated queued workers, then add shared caching/rate limiting, managed vector/search capacity, identity and tenant controls, durable observability, and independently scalable gateway/API workloads. Kubernetes and autoscaling are possible later operational choices, not current Synapse features.
+
 ## Technology stack
 
 | Area | Technology |
