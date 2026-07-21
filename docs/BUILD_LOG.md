@@ -1152,3 +1152,12 @@ This log records completed project phases. Entries describe work actually perfor
 - The current test environment reported one third-party Chroma deprecation warning.
 - The default mypy cache remains unreliable in this managed environment; use a clean explicit cache
   directory if the internal error recurs.
+
+## Deployment Dependency Manifest
+
+**Date:** 2026-07-22
+**Status:** Complete
+
+- Added `ai-service/requirements.txt` for deployment platforms that install Python dependencies
+  from a requirements manifest. It mirrors the production dependency bounds in
+  `ai-service/pyproject.toml`; development-only tools remain in the `dev` optional dependency group.
