@@ -1,0 +1,15 @@
+# Production dependencies for platforms that install from requirements.txt.
+# Keep this list aligned with [project.dependencies] in pyproject.toml.
+chromadb>=1.5.9,<2
+fastapi>=0.115,<1
+httpx>=0.28,<1
+langgraph>=1.2.11,<2
+mistralai>=2.9.4,<3
+pymupdf>=1.28.2,<2
+pymongo>=4.11,<5
+pydantic>=2.10,<3
+pydantic-settings>=2.7,<3
+python-multipart>=0.0.20,<1
+rank-bm25>=0.2.2,<0.3
+typing-extensions>=4.12,<5
+uvicorn[standard]>=0.34,<1
